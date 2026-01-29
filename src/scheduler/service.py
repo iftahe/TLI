@@ -6,7 +6,7 @@ jobstores = {
     'default': SQLAlchemyJobStore(engine=engine)
 }
 
-scheduler = BackgroundScheduler(jobstores=jobstores)
+scheduler = BackgroundScheduler(jobstores=jobstores, timezone="Asia/Jerusalem")
 
 def start_scheduler():
     scheduler.start()

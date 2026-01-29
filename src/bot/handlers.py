@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta
+from src.bot.utils import get_now, to_naive_israel
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from src.bot.constants import *
@@ -92,7 +93,7 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     choice = query.data
-    now = datetime.now()
+    now = get_now()
     reminder_time = None
     
     if choice == REMINDER_1H:
@@ -116,22 +117,27 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     session = SessionLocal()
     try:
+        if reminder_time:
+            reminder_time_naive = to_naive_israel(reminder_time)
+        else:
+            reminder_time_naive = None
+
         new_task = Task(
             chat_id=update.effective_chat.id,
             text=context.user_data['description'],
             priority=context.user_data['priority'],
             parent_category=context.user_data['parent'],
             sub_category=context.user_data['subcategory'],
-            reminder_time=reminder_time,
+            reminder_time=reminder_time_naive,
             status='pending'
         )
         session.add(new_task)
         session.commit()
         session.refresh(new_task)
-        
+
         if reminder_time:
             add_reminder_job(new_task.id, reminder_time, update.effective_chat.id)
-            
+
         time_str = reminder_time.strftime('%H:%M %d/%m') if reminder_time else "ללא"
         await query.edit_message_text(
             f"✅ **המשימה נשמרה**\n"
@@ -417,11 +423,14 @@ async def snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         task = session.query(Task).filter(Task.id == task_id).first()
         if task:
-            new_time = datetime.now() + timedelta(hours=1)
-            task.reminder_time = new_time
+            # new_time is aware
+            new_time = get_now() + timedelta(hours=1)
+            
+            # Save naive to DB
+            task.reminder_time = to_naive_israel(new_time)
             session.commit()
             
-            # Reschedule
+            # Reschedule with aware time
             add_reminder_job(task.id, new_time, update.effective_chat.id)
             
             await query.edit_message_text(f"💤 התזכורת נדחתה לשעה {new_time.strftime('%H:%M')}")
@@ -468,7 +477,7 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
          logger.error(f"Failed to parse update reminder data: {data}")
          return
 
-    now = datetime.now()
+    now = get_now()
     reminder_time = None
     
     # Logic copied from reminder_callback but reused
@@ -495,7 +504,7 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
     try:
         task = session.query(Task).filter(Task.id == task_id).first()
         if task:
-            task.reminder_time = reminder_time
+            task.reminder_time = to_naive_israel(reminder_time) if reminder_time else None
             session.commit()
             
             # Reschedule

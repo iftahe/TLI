@@ -4,12 +4,13 @@ from src.database.core import SessionLocal
 from src.database.models import Task
 from src.bot.constants import CATEGORY_HOME, CATEGORY_WORK, PRIORITY_URGENT
 from datetime import datetime, timedelta
+from src.bot.utils import get_now
 
 async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = SessionLocal()
     try:
         chat_id = update.effective_chat.id
-        now = datetime.now()
+        now = get_now()
         
         # 1. Stats
         active_tasks = session.query(Task).filter(
@@ -32,11 +33,19 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 2. Upcoming Reminders (Today)
         end_of_day = now.replace(hour=23, minute=59, second=59)
+        # Note: DB time is naive Israel time. 
+        # We need to compare with naive Israel time for the query to work if the DB is naive.
+        # However, comparisons between aware and naive fail.
+        # "now" is aware. DB is naive.
+        # So we convert bounds to naive Israel time.
+        now_naive = now.replace(tzinfo=None) # Since now is strictly ISRAEL time, stripping tzinfo gives us Israel wall time.
+        end_of_day_naive = end_of_day.replace(tzinfo=None)
+
         reminders = session.query(Task).filter(
             Task.chat_id == chat_id,
             Task.status == 'pending',
-            Task.reminder_time >= now,
-            Task.reminder_time <= end_of_day
+            Task.reminder_time >= now_naive,
+            Task.reminder_time <= end_of_day_naive
         ).order_by(Task.reminder_time).all()
         
         # 3. Urgent Tasks (Top 3)

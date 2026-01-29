@@ -31,5 +31,15 @@ EDIT_TASK = 'edit_task_'
 EDIT_REMINDER_PREFIX = 'edit_rem_'
 UPD_REMINDER_PREFIX = 'upd_rem_'
 
+# Recurrence
+REC_DAILY = 'daily'
+REC_WEEKLY = 'weekly'
+REC_MONTHLY = 'monthly'
+REC_NONE = 'rec_none'
+
+# Recurrence Callbacks
+SET_REC_PREFIX = 'set_rec_'
+UPD_REC_PREFIX = 'upd_rec_'
+
 # Edit State
 EDITING_DESCRIPTION = 10

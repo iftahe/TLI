@@ -14,6 +14,7 @@ class Task(Base):
     sub_category = Column(String, nullable=True)
     reminder_time = Column(DateTime, nullable=True)
     status = Column(String, default='pending')  # 'pending', 'done'
+    recurrence = Column(String, nullable=True) # 'daily', 'weekly', 'monthly'
     created_at = Column(DateTime, default=func.now())
 
 class SubCategory(Base):
