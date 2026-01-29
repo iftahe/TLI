@@ -1,0 +1,5 @@
+python-telegram-bot[job-queue, callback-data]
+sqlalchemy
+apscheduler
+python-dotenv
+psycopg2-binary
