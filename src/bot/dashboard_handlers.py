@@ -11,34 +11,24 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         chat_id = update.effective_chat.id
         now = get_now()
-        
+
         # 1. Stats
         active_tasks = session.query(Task).filter(
             get_accessible_filter(chat_id),
             Task.status == 'pending'
         ).all()
-        
-        home_count = sum(1 for t in active_tasks if t.parent_category == CATEGORY_HOME)
+
+        home_personal = sum(1 for t in active_tasks if t.parent_category == CATEGORY_HOME and not t.is_shared)
+        home_shared = sum(1 for t in active_tasks if t.parent_category == CATEGORY_HOME and t.is_shared)
         work_count = sum(1 for t in active_tasks if t.parent_category == CATEGORY_WORK)
-        
-        home_urgent = sum(1 for t in active_tasks if t.parent_category == CATEGORY_HOME and t.priority == PRIORITY_URGENT)
-        work_urgent = sum(1 for t in active_tasks if t.parent_category == CATEGORY_WORK and t.priority == PRIORITY_URGENT)
-        
-        today_completed = session.query(Task).filter(
-             get_accessible_filter(chat_id),
-             Task.status == 'done',
-             # Assuming we don't have completed_at yet, we can't accurately enable this line.
-             # Task.created_at >= now.replace(hour=0, minute=0, second=0)
-        ).count()
+        total = len(active_tasks)
+
+        urgent_personal = sum(1 for t in active_tasks if t.priority == PRIORITY_URGENT and not t.is_shared)
+        urgent_shared = sum(1 for t in active_tasks if t.priority == PRIORITY_URGENT and t.is_shared)
 
         # 2. Upcoming Reminders (Today)
         end_of_day = now.replace(hour=23, minute=59, second=59)
-        # Note: DB time is naive Israel time. 
-        # We need to compare with naive Israel time for the query to work if the DB is naive.
-        # However, comparisons between aware and naive fail.
-        # "now" is aware. DB is naive.
-        # So we convert bounds to naive Israel time.
-        now_naive = now.replace(tzinfo=None) # Since now is strictly ISRAEL time, stripping tzinfo gives us Israel wall time.
+        now_naive = now.replace(tzinfo=None)
         end_of_day_naive = end_of_day.replace(tzinfo=None)
 
         reminders = session.query(Task).filter(
@@ -47,54 +37,61 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             Task.reminder_time >= now_naive,
             Task.reminder_time <= end_of_day_naive
         ).order_by(Task.reminder_time).all()
-        
+
         # 3. Urgent Tasks (Top 3)
         urgent_tasks = [t for t in active_tasks if t.priority == 'urgent']
-        urgent_tasks.sort(key=lambda t: t.created_at or now) # oldest first
+        urgent_tasks.sort(key=lambda t: t.created_at or now)
         top_urgent = urgent_tasks[:3]
 
         # Build Message
         greeting_time = "בוקר" if 5 <= now.hour < 12 else "צהריים" if 12 <= now.hour < 18 else "ערב"
         date_str = now.strftime("%d/%m")
-        day_name = now.strftime("%A") # English day name, mapping to Hebrew would be nice but keeping simple
-        
-        msg = f"👋 **{greeting_time} טוב!**\n"
+
+        msg = f"👋 <b>{greeting_time} טוב!</b>\n"
         msg += f"📅 {date_str}\n\n"
-        
-        msg += "📊 **תמונת מצב:**\n"
-        msg += f"🏠 **בית:** {home_count} (🔴 {home_urgent})\n"
-        msg += f"💼 **עבודה:** {work_count} (🔴 {work_urgent})\n"
-        # msg += f"✅ **הושלמו היום:** {today_completed}\n" 
-        
+
+        # KPI row
+        msg += f"🏠 בית: <b>{home_personal}</b>"
+        msg += f"  ·  👥 משותף: <b>{home_shared}</b>"
+        msg += f"  ·  💼 עבודה: <b>{work_count}</b>\n"
+        msg += f"סה״כ: <b>{total}</b> משימות פתוחות\n"
+
+        if urgent_personal or urgent_shared:
+            parts = []
+            if urgent_personal:
+                parts.append(f"{urgent_personal} אישי")
+            if urgent_shared:
+                parts.append(f"{urgent_shared} משותף")
+            msg += f"🔴 דחוף: {' · '.join(parts)}\n"
+
         if top_urgent:
-             msg += "\n🔥 **דחוף ביותר:**\n"
-             for t in top_urgent:
-                 cat = "🏠" if t.parent_category == CATEGORY_HOME else "💼"
-                 msg += f"• {cat} {t.text}\n"
+            msg += "\n🔥 <b>דחוף:</b>\n"
+            for t in top_urgent:
+                shared = " 👥" if t.is_shared else ""
+                cat = "🏠" if t.parent_category == CATEGORY_HOME else "💼"
+                msg += f"  {cat} {t.text}{shared}\n"
 
         if reminders:
-            msg += "\n🔔 **תזכורות להיום:**\n"
+            msg += "\n🔔 <b>תזכורות:</b>\n"
             for t in reminders:
                 t_str = t.reminder_time.strftime("%H:%M")
-                msg += f"• {t_str} - {t.text}\n"
-        else:
-            msg += "\n🎉 אין עוד תזכורות להיום!\n"
+                shared = " 👥" if t.is_shared else ""
+                msg += f"  {t_str} — {t.text}{shared}\n"
 
         # Build Keyboard
         keyboard = [
             [
-                InlineKeyboardButton("🏠 בית", callback_data="filter_home"), # Fallback or specific filter
-                InlineKeyboardButton("💼 עבודה", callback_data="filter_work")
+                InlineKeyboardButton(f"🏠 בית ({home_personal + home_shared})", callback_data="filter_home"),
+                InlineKeyboardButton(f"💼 עבודה ({work_count})", callback_data="filter_work")
             ]
         ]
-        
+
         markup = InlineKeyboardMarkup(keyboard)
-        
+
         if update.message:
-            await update.message.reply_text(msg, reply_markup=markup, parse_mode='Markdown')
+            await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
         elif update.callback_query:
-             # If we are navigating back to dashboard, edit message
-            await update.callback_query.edit_message_text(msg, reply_markup=markup, parse_mode='Markdown')
+            await update.callback_query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
 
     finally:
         session.close()

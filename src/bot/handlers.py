@@ -305,67 +305,53 @@ async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.callback_query.edit_message_text(msg)
             return
 
-        # Sort: Urgent, Normal, Low
         priority_order = {'urgent': 0, 'normal': 1, 'low': 2}
         tasks.sort(key=lambda t: priority_order.get(t.priority, 99))
 
-        # Group data by Parent -> Sub
+        # Group: Parent -> Sub -> tasks
         grouped = {CATEGORY_HOME: {}, CATEGORY_WORK: {}}
         for t in tasks:
             parent = t.parent_category if t.parent_category in grouped else None
-            if not parent: continue 
-            
+            if not parent:
+                continue
             sub = t.sub_category or "כללי"
             if sub not in grouped[parent]:
                 grouped[parent][sub] = []
             grouped[parent][sub].append(t)
 
-        text_lines = ["📋 <b>המשימות שלך:</b>\n"]
+        header = f"📋 <b>כל המשימות</b> — {len(tasks)} פתוחות"
         keyboard = []
 
         def add_section(parent_key, label, icon):
             sub_cats = grouped.get(parent_key, {})
-            # Check if there are any tasks in this parent category
             if not any(sub_cats.values()):
                 return False
-
-            total_tasks = sum(len(l) for l in sub_cats.values())
-            text_lines.append(f"{icon} <b>{label}</b> ({total_tasks})")
-            keyboard.append([InlineKeyboardButton(f"{icon} {label}", callback_data="ignore")])
-            
+            total = sum(len(l) for l in sub_cats.values())
+            # Parent category header
+            keyboard.append([InlineKeyboardButton(f"━━ {icon} {label} ({total}) ━━", callback_data="ignore")])
             for sub_name, section_tasks in sub_cats.items():
-                if not section_tasks: continue
-                
-                text_lines.append(f"   📂 <i>{sub_name}</i>")
-                keyboard.append([InlineKeyboardButton(f"   📂 {sub_name}", callback_data="ignore")])
-                
+                if not section_tasks:
+                    continue
+                # Subcategory header
+                keyboard.append([InlineKeyboardButton(f"── {sub_name} ──", callback_data="ignore")])
                 for t in section_tasks:
                     p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
                     shared_mark = " 👥" if t.is_shared else ""
-                    # Add to text
-                    text_lines.append(f"      • {p_icon} {t.text}{shared_mark}")
-                    # Add to keyboard
-                    keyboard.append([InlineKeyboardButton(f"      {p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
-            
-            text_lines.append("") # Empty line
+                    keyboard.append([InlineKeyboardButton(f"{p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
             return True
 
-        has_home = add_section(CATEGORY_HOME, "בית", "🏠")
-        
-        if has_home and any(grouped[CATEGORY_WORK].values()):
-             keyboard.append([InlineKeyboardButton("➖➖➖➖➖➖", callback_data="ignore")])
-
+        add_section(CATEGORY_HOME, "בית", "🏠")
         add_section(CATEGORY_WORK, "עבודה", "💼")
 
-        text_lines.append("💡 <i>לחץ על משימה לפרטים נוספים</i>")
-        final_text = "\n".join(text_lines)
+        keyboard.append([InlineKeyboardButton("🔙 חזרה לראשי", callback_data="back_to_dashboard")])
+
         markup = InlineKeyboardMarkup(keyboard)
 
         if update.message:
-            await update.message.reply_text(final_text, reply_markup=markup, parse_mode='HTML')
+            await update.message.reply_text(header, reply_markup=markup, parse_mode='HTML')
         elif update.callback_query:
-            await update.callback_query.edit_message_text(final_text, reply_markup=markup, parse_mode='HTML')
-            
+            await update.callback_query.edit_message_text(header, reply_markup=markup, parse_mode='HTML')
+
     except Exception as e:
         logger.error(f"Error listing tasks: {e}")
         if update.message:
@@ -477,18 +463,12 @@ async def global_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def filter_tasks_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     data = query.data
-    logger.info(f"Filtering task with data: {data}")
-    
-    # We can reuse list_tasks_command but we need to inject the filter into user_data or pass it?
-    # list_tasks_command reads from DB directly.
-    # Let's cheat slightly and modify user_data['filter'] then call a shared internal function,
-    # OR simpler: just implement a dedicated filtered view here reusing the logic.
-    
     target_category = CATEGORY_HOME if data == 'filter_home' else CATEGORY_WORK
     category_label = "בית" if target_category == CATEGORY_HOME else "עבודה"
-    
+    icon_main = "🏠" if target_category == CATEGORY_HOME else "💼"
+
     session = SessionLocal()
     try:
         tasks = session.query(Task).filter(
@@ -496,48 +476,39 @@ async def filter_tasks_callback(update: Update, context: ContextTypes.DEFAULT_TY
             Task.status == 'pending',
             Task.parent_category == target_category
         ).all()
-        
-        # Sort simple
+
         priority_order = {'urgent': 0, 'normal': 1, 'low': 2}
         tasks.sort(key=lambda t: priority_order.get(t.priority, 99))
-        
-        # Group by sub
+
+        # Group by subcategory
         grouped = {}
         for t in tasks:
             sub = t.sub_category or "כללי"
-            if sub not in grouped: grouped[sub] = []
+            if sub not in grouped:
+                grouped[sub] = []
             grouped[sub].append(t)
-            
-        icon_main = "🏠" if target_category == CATEGORY_HOME else "💼"
-        text_lines = [f"🔎 <b>סינון: {icon_main} {category_label}</b> ({len(tasks)})", ""]
+
+        header = f"{icon_main} <b>{category_label}</b> — {len(tasks)} משימות"
+
         keyboard = []
-        
-        # Back button
-        keyboard.append([InlineKeyboardButton("🔙 חזרה לדשבורד", callback_data="list_tasks_dashboard")]) # pointing to list logic? No, wait.
-        # "list_tasks_dashboard" mapped to list_tasks_command (full list). 
-        # Ideally we want back to DASHBOARD.
-        # Let's add that Button.
-        
-        for sub_name, section_tasks in grouped.items():
-            text_lines.append(f"📂 <i>{sub_name}</i>")
-            # keyboard.append([InlineKeyboardButton(f"📂 {sub_name}", callback_data="ignore")])
-            for t in section_tasks:
-                p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
-                shared_mark = " 👥" if t.is_shared else ""
-                text_lines.append(f"   • {p_icon} {t.text}{shared_mark}")
-                keyboard.append([InlineKeyboardButton(f"{p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
-            text_lines.append("")
 
         if not tasks:
-            text_lines.append("<i>אין משימות בקטגוריה זו.</i>")
-            
-        final_text = "\n".join(text_lines)
-        
-        # Add a clear Back to Start
+            header = f"{icon_main} <b>{category_label}</b> — אין משימות"
+        else:
+            for sub_name, section_tasks in grouped.items():
+                if not section_tasks:
+                    continue
+                # Section header — non-clickable
+                keyboard.append([InlineKeyboardButton(f"── {sub_name} ──", callback_data="ignore")])
+                for t in section_tasks:
+                    p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
+                    shared_mark = " 👥" if t.is_shared else ""
+                    keyboard.append([InlineKeyboardButton(f"{p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
+
         keyboard.append([InlineKeyboardButton("🔙 חזרה לראשי", callback_data="back_to_dashboard")])
-        
-        await query.edit_message_text(final_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
-        
+
+        await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+
     finally:
         session.close()
 
