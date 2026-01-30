@@ -10,14 +10,14 @@ MIGRATIONS = [
 ]
 
 def migrate():
-    with engine.connect() as conn:
-        for table, column, sql in MIGRATIONS:
-            try:
+    for table, column, sql in MIGRATIONS:
+        try:
+            with engine.connect() as conn:
                 conn.execute(text(sql))
                 conn.commit()
                 logger.info(f"Added '{column}' column to '{table}'.")
-            except Exception as e:
-                logger.info(f"Column '{column}' on '{table}' already exists or migration skipped: {e}")
+        except Exception as e:
+            logger.info(f"Column '{column}' on '{table}' already exists or migration skipped: {e}")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
