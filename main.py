@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.database.core import init_db
+from migrate_db import migrate
 from src.scheduler.service import start_scheduler, add_daily_summary_job
 from src.bot.bot_app import create_app
 
@@ -27,6 +28,10 @@ def main():
     # 2. Initialize DB
     logger.info("Initializing Database...")
     init_db()
+
+    # 2b. Run migrations (adds missing columns to existing tables)
+    logger.info("Running migrations...")
+    migrate()
 
     # 3. Start Scheduler
     logger.info("Starting Scheduler...")
