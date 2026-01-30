@@ -21,6 +21,7 @@ class SubCategory(Base):
     __tablename__ = "sub_categories"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(BigInteger, nullable=True, index=True)
     name = Column(String, nullable=False)
     parent = Column(String, nullable=False)  # 'home' or 'work'
     is_active = Column(Integer, default=1)  # 1=True, 0=False

@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
-from src.database.core import SessionLocal
+from src.database.core import SessionLocal, ensure_user_categories
 from src.database.models import SubCategory
 from src.bot.constants import CATEGORY_HOME, CATEGORY_WORK
 import logging
@@ -19,7 +19,12 @@ async def categories_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Lists all categories with Add/Delete options."""
     session = SessionLocal()
     try:
-        categories = session.query(SubCategory).filter(SubCategory.is_active == 1).all()
+        chat_id = update.effective_chat.id
+        ensure_user_categories(session, chat_id)
+        categories = session.query(SubCategory).filter(
+            SubCategory.chat_id == chat_id,
+            SubCategory.is_active == 1
+        ).all()
         
         home_cats = [c for c in categories if c.parent == CATEGORY_HOME]
         work_cats = [c for c in categories if c.parent == CATEGORY_WORK]
@@ -77,7 +82,7 @@ async def save_new_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     session = SessionLocal()
     try:
-        new_cat = SubCategory(name=text, parent=parent, is_active=1)
+        new_cat = SubCategory(name=text, parent=parent, chat_id=update.effective_chat.id, is_active=1)
         session.add(new_cat)
         session.commit()
         await update.message.reply_text(f"✅ הקטגוריה **{text}** נוספה בהצלחה!", parse_mode='Markdown')
@@ -100,7 +105,7 @@ async def delete_category_callback(update: Update, context: ContextTypes.DEFAULT
     logger.info(f"Attempting to delete category {cat_id}")
     session = SessionLocal()
     try:
-        cat = session.query(SubCategory).filter(SubCategory.id == cat_id).first()
+        cat = session.query(SubCategory).filter(SubCategory.id == cat_id, SubCategory.chat_id == update.effective_chat.id).first()
         if cat:
             logger.info(f"Found category {cat.name} (ID: {cat.id}), marking as inactive.")
             cat.is_active = 0

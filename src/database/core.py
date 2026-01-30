@@ -23,30 +23,29 @@ jobstores = {
     'default': SQLAlchemyJobStore(engine=engine)
 }
 
+DEFAULT_CATEGORIES = [
+    # Home
+    ("קניות 🛒", "home"),
+    ("תחזוקה 🔧", "home"),
+    ("ניקיון 🧹", "home"),
+    ("אחר 📂", "home"),
+    # Work
+    ("מיילים 📧", "work"),
+    ("פגישות 📅", "work"),
+    ("פרויקטים 📊", "work"),
+    ("אחר 📂", "work"),
+]
+
 def init_db():
     Base.metadata.create_all(bind=engine)
-    
-    # Seed default categories if empty
-    session = SessionLocal()
-    try:
-        count = session.query(SubCategory).count()
-        if count == 0:
-            defaults = [
-                # Home
-                SubCategory(name="קניות 🛒", parent="home"),
-                SubCategory(name="תחזוקה 🔧", parent="home"),
-                SubCategory(name="ניקיון 🧹", parent="home"),
-                SubCategory(name="אחר 📂", parent="home"),
-                # Work
-                SubCategory(name="מיילים 📧", parent="work"),
-                SubCategory(name="פגישות 📅", parent="work"),
-                SubCategory(name="פרויקטים 📊", parent="work"),
-                SubCategory(name="אחר 📂", parent="work"),
-            ]
-            session.add_all(defaults)
-            session.commit()
-            print("Seeded default categories.")
-    except Exception as e:
-        print(f"Error seeding DB: {e}")
-    finally:
-        session.close()
+
+def ensure_user_categories(session, chat_id: int):
+    """Seeds default categories for a user if they have none yet."""
+    count = session.query(SubCategory).filter(SubCategory.chat_id == chat_id).count()
+    if count == 0:
+        defaults = [
+            SubCategory(name=name, parent=parent, chat_id=chat_id, is_active=1)
+            for name, parent in DEFAULT_CATEGORIES
+        ]
+        session.add_all(defaults)
+        session.commit()

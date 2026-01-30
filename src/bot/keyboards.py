@@ -11,15 +11,18 @@ def get_priority_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-from src.database.core import SessionLocal
+from src.database.core import SessionLocal, ensure_user_categories
 from src.database.models import SubCategory
 
-def get_subcategory_keyboard(parent_category):
+def get_subcategory_keyboard(parent_category, chat_id=None):
     session = SessionLocal()
     try:
+        if chat_id:
+            ensure_user_categories(session, chat_id)
         categories = session.query(SubCategory).filter(
             SubCategory.parent == parent_category,
-            SubCategory.is_active == 1
+            SubCategory.is_active == 1,
+            SubCategory.chat_id == chat_id
         ).all()
         
         buttons = []

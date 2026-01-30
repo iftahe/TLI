@@ -56,7 +56,7 @@ async def priority_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parent = context.user_data.get('parent')
     await query.edit_message_text(
         text=f"עדיפות נבחרה. קטגוריה:",
-        reply_markup=get_subcategory_keyboard(parent)
+        reply_markup=get_subcategory_keyboard(parent, chat_id=update.effective_chat.id)
     )
     return SUB_CATEGORY
 
@@ -247,7 +247,7 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     task_id = int(query.data.replace(VIEW_TASK, ""))
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id).first()
+        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
         if not task:
             await query.edit_message_text("❌ המשימה לא נמצאה (אולי נמחקה?)")
             return
@@ -283,7 +283,7 @@ async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     task_id = int(query.data.replace(DONE_TASK, ""))
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id).first()
+        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
         if task:
             task.status = 'done'
             session.commit()
@@ -314,7 +314,7 @@ async def save_edit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id).first()
+        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
         if task:
             task.text = new_text
             session.commit()
@@ -421,7 +421,7 @@ async def snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id).first()
+        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
         if task:
             # new_time is aware
             new_time = get_now() + timedelta(hours=1)
@@ -502,11 +502,11 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
 
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id).first()
+        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
         if task:
             task.reminder_time = to_naive_israel(reminder_time) if reminder_time else None
             session.commit()
-            
+
             # Reschedule
             if reminder_time:
                 add_reminder_job(task.id, reminder_time, update.effective_chat.id)

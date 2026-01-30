@@ -1,14 +1,32 @@
 import os
-from telegram.ext import ApplicationBuilder, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+import logging
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler, TypeHandler, ApplicationHandlerStop
 from src.bot.handlers import *
 from src.bot.constants import *
+from src.bot.utils import is_user_allowed
+
+logger = logging.getLogger(__name__)
+
+async def auth_gate(update: Update, context):
+    user = update.effective_user
+    if user is None or not is_user_allowed(user.id):
+        logger.warning(f"Unauthorized access attempt from user {user.id if user else 'unknown'}")
+        if update.message:
+            await update.message.reply_text("⛔ אין לך הרשאה להשתמש בבוט זה.")
+        elif update.callback_query:
+            await update.callback_query.answer("⛔ אין הרשאה", show_alert=True)
+        raise ApplicationHandlerStop()
 
 def create_app():
     token = os.getenv("BOT_TOKEN")
     if not token:
         raise ValueError("No BOT_TOKEN in environment")
-        
+
     app = ApplicationBuilder().token(token).build()
+
+    # Auth gate — blocks all updates from unauthorized users (runs before all other handlers)
+    app.add_handler(TypeHandler(Update, auth_gate), group=-1)
     
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(r'^(בית|עבודה)'), task_entry_handler)],
