@@ -1,11 +1,11 @@
 import re
 import logging
 from datetime import datetime, timedelta
-from src.bot.utils import get_now, to_naive_israel, ISRAEL_TZ
+from src.bot.utils import get_now, to_naive_israel, ISRAEL_TZ, get_accessible_filter, get_accessible_task
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from src.bot.constants import *
-from src.bot.keyboards import get_priority_keyboard, get_subcategory_keyboard, get_reminder_keyboard
+from src.bot.keyboards import get_priority_keyboard, get_subcategory_keyboard, get_reminder_keyboard, get_shared_choice_keyboard
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from src.database.core import SessionLocal
 from src.database.models import Task, SubCategory
@@ -86,6 +86,17 @@ async def priority_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['priority'] = priority
 
     parent = context.user_data.get('parent')
+
+    # Home tasks: ask shared/personal choice first
+    if parent == CATEGORY_HOME:
+        await query.edit_message_text(
+            text="עדיפות נבחרה. משימה אישית או משותפת?",
+            reply_markup=get_shared_choice_keyboard()
+        )
+        return SHARED_CHOICE
+
+    # Work tasks: skip shared choice, always personal
+    context.user_data['is_shared'] = False
     try:
         keyboard = get_subcategory_keyboard(parent, chat_id=update.effective_chat.id)
     except Exception as e:
@@ -95,6 +106,28 @@ async def priority_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(
         text="עדיפות נבחרה. קטגוריה:",
+        reply_markup=keyboard
+    )
+    return SUB_CATEGORY
+
+async def shared_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    is_shared = query.data == SHARED_TASK_YES
+    context.user_data['is_shared'] = is_shared
+
+    parent = context.user_data.get('parent')
+    try:
+        keyboard = get_subcategory_keyboard(parent, chat_id=update.effective_chat.id, is_shared=is_shared)
+    except Exception as e:
+        logger.error(f"Error building subcategory keyboard: {e}", exc_info=True)
+        await query.edit_message_text("❌ שגיאה בטעינת קטגוריות. נסה שוב עם /cancel ואז התחל משימה חדשה.")
+        return ConversationHandler.END
+
+    label = "👥 משותף" if is_shared else "👤 אישי"
+    await query.edit_message_text(
+        text=f"{label} — בחר קטגוריה:",
         reply_markup=keyboard
     )
     return SUB_CATEGORY
@@ -167,6 +200,7 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reminder_time_naive = None
 
+        is_shared = 1 if context.user_data.get('is_shared') else 0
         new_task = Task(
             chat_id=update.effective_chat.id,
             text=context.user_data['description'],
@@ -174,7 +208,8 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parent_category=context.user_data['parent'],
             sub_category=context.user_data['subcategory'],
             reminder_time=reminder_time_naive,
-            status='pending'
+            status='pending',
+            is_shared=is_shared
         )
         session.add(new_task)
         session.commit()
@@ -184,8 +219,9 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             add_reminder_job(new_task.id, reminder_time, update.effective_chat.id)
 
         time_str = reminder_time.strftime('%H:%M %d/%m') if reminder_time else "ללא"
+        shared_label = " 👥" if is_shared else ""
         await query.edit_message_text(
-            f"✅ **המשימה נשמרה**\n"
+            f"✅ **המשימה נשמרה**{shared_label}\n"
             f"📝 {new_task.text}\n"
             f"⏰ תזכורת: {time_str}",
             parse_mode='HTML'
@@ -215,6 +251,7 @@ async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
     session = SessionLocal()
     try:
         reminder_time_naive = to_naive_israel(reminder_time)
+        is_shared = 1 if context.user_data.get('is_shared') else 0
         new_task = Task(
             chat_id=update.effective_chat.id,
             text=context.user_data['description'],
@@ -222,7 +259,8 @@ async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
             parent_category=context.user_data['parent'],
             sub_category=context.user_data['subcategory'],
             reminder_time=reminder_time_naive,
-            status='pending'
+            status='pending',
+            is_shared=is_shared
         )
         session.add(new_task)
         session.commit()
@@ -231,8 +269,9 @@ async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
         add_reminder_job(new_task.id, reminder_time, update.effective_chat.id)
 
         time_str = reminder_time.strftime('%H:%M %d/%m')
+        shared_label = " 👥" if is_shared else ""
         await update.message.reply_text(
-            f"✅ <b>המשימה נשמרה</b>\n"
+            f"✅ <b>המשימה נשמרה</b>{shared_label}\n"
             f"📝 {new_task.text}\n"
             f"⏰ תזכורת: {time_str}",
             parse_mode='HTML'
@@ -252,11 +291,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = SessionLocal()
     try:
+        chat_id = update.effective_chat.id
         tasks = session.query(Task).filter(
-            Task.chat_id == update.effective_chat.id,
+            get_accessible_filter(chat_id),
             Task.status == 'pending'
         ).all()
-        
+
         if not tasks:
             msg = "אין משימות פתוחות! 🎉"
             if update.message:
@@ -301,10 +341,11 @@ async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 
                 for t in section_tasks:
                     p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
+                    shared_mark = " 👥" if t.is_shared else ""
                     # Add to text
-                    text_lines.append(f"      • {p_icon} {t.text}")
+                    text_lines.append(f"      • {p_icon} {t.text}{shared_mark}")
                     # Add to keyboard
-                    keyboard.append([InlineKeyboardButton(f"      {p_icon} {t.text}", callback_data=f"{VIEW_TASK}{t.id}")])
+                    keyboard.append([InlineKeyboardButton(f"      {p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
             
             text_lines.append("") # Empty line
             return True
@@ -339,7 +380,7 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     task_id = int(query.data.replace(VIEW_TASK, ""))
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
+        task = get_accessible_task(session, task_id, update.effective_chat.id)
         if not task:
             await query.edit_message_text("❌ המשימה לא נמצאה (אולי נמחקה?)")
             return
@@ -347,11 +388,13 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         priority_map = {'urgent': "durgent 🔴", 'normal': "רגיל 🟡", 'low': "נמוך 🟢"}
         p_text = priority_map.get(task.priority, task.priority)
         time_str = task.reminder_time.strftime('%d/%m %H:%M') if task.reminder_time else "ללא"
-        
+        shared_line = "👥 משותף" if task.is_shared else "👤 אישי"
+
         text = (
             f"📝 <b>{task.text}</b>\n"
             f"📂 קטגוריה: {task.parent_category} > {task.sub_category}\n"
             f"⚡ עדיפות: {p_text}\n"
+            f"🔒 סוג: {shared_line}\n"
             f"⏰ תזכורת: {time_str}"
         )
         
@@ -375,7 +418,7 @@ async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     task_id = int(query.data.replace(DONE_TASK, ""))
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
+        task = get_accessible_task(session, task_id, update.effective_chat.id)
         if task:
             task.status = 'done'
             session.commit()
@@ -406,7 +449,7 @@ async def save_edit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
+        task = get_accessible_task(session, task_id, update.effective_chat.id)
         if task:
             task.text = new_text
             session.commit()
@@ -449,7 +492,7 @@ async def filter_tasks_callback(update: Update, context: ContextTypes.DEFAULT_TY
     session = SessionLocal()
     try:
         tasks = session.query(Task).filter(
-            Task.chat_id == update.effective_chat.id,
+            get_accessible_filter(update.effective_chat.id),
             Task.status == 'pending',
             Task.parent_category == target_category
         ).all()
@@ -480,8 +523,9 @@ async def filter_tasks_callback(update: Update, context: ContextTypes.DEFAULT_TY
             # keyboard.append([InlineKeyboardButton(f"📂 {sub_name}", callback_data="ignore")])
             for t in section_tasks:
                 p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
-                text_lines.append(f"   • {p_icon} {t.text}")
-                keyboard.append([InlineKeyboardButton(f"{p_icon} {t.text}", callback_data=f"{VIEW_TASK}{t.id}")])
+                shared_mark = " 👥" if t.is_shared else ""
+                text_lines.append(f"   • {p_icon} {t.text}{shared_mark}")
+                keyboard.append([InlineKeyboardButton(f"{p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
             text_lines.append("")
 
         if not tasks:
@@ -513,7 +557,7 @@ async def snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
+        task = get_accessible_task(session, task_id, update.effective_chat.id)
         if task:
             # new_time is aware
             new_time = get_now() + timedelta(hours=1)
@@ -590,7 +634,7 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
 
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
+        task = get_accessible_task(session, task_id, update.effective_chat.id)
         if task:
             task.reminder_time = to_naive_israel(reminder_time) if reminder_time else None
             session.commit()
@@ -663,7 +707,7 @@ async def custom_edit_reminder_handler(update: Update, context: ContextTypes.DEF
     task_id = context.user_data.get('custom_reminder_task_id')
     session = SessionLocal()
     try:
-        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
+        task = get_accessible_task(session, task_id, update.effective_chat.id)
         if task:
             task.reminder_time = to_naive_israel(reminder_time)
             session.commit()
@@ -695,7 +739,8 @@ async def quick_add_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parent_category=CATEGORY_HOME, # Default to Home
             sub_category='כללי',
             reminder_time=None,
-            status='pending'
+            status='pending',
+            is_shared=0
         )
         session.add(new_task)
         session.commit()

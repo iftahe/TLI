@@ -4,7 +4,7 @@ from src.database.core import SessionLocal
 from src.database.models import Task
 from src.bot.constants import CATEGORY_HOME, CATEGORY_WORK, PRIORITY_URGENT
 from datetime import datetime, timedelta
-from src.bot.utils import get_now
+from src.bot.utils import get_now, get_accessible_filter
 
 async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = SessionLocal()
@@ -14,7 +14,7 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 1. Stats
         active_tasks = session.query(Task).filter(
-            Task.chat_id == chat_id, 
+            get_accessible_filter(chat_id),
             Task.status == 'pending'
         ).all()
         
@@ -25,10 +25,10 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         work_urgent = sum(1 for t in active_tasks if t.parent_category == CATEGORY_WORK and t.priority == PRIORITY_URGENT)
         
         today_completed = session.query(Task).filter(
-             Task.chat_id == chat_id,
+             get_accessible_filter(chat_id),
              Task.status == 'done',
              # Assuming we don't have completed_at yet, we can't accurately enable this line.
-             # Task.created_at >= now.replace(hour=0, minute=0, second=0) 
+             # Task.created_at >= now.replace(hour=0, minute=0, second=0)
         ).count()
 
         # 2. Upcoming Reminders (Today)
@@ -42,7 +42,7 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         end_of_day_naive = end_of_day.replace(tzinfo=None)
 
         reminders = session.query(Task).filter(
-            Task.chat_id == chat_id,
+            get_accessible_filter(chat_id),
             Task.status == 'pending',
             Task.reminder_time >= now_naive,
             Task.reminder_time <= end_of_day_naive

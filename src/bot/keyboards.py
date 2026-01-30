@@ -1,6 +1,15 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from src.bot.constants import *
 
+def get_shared_choice_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("👤 אישי", callback_data=SHARED_TASK_NO),
+            InlineKeyboardButton("👥 משותף", callback_data=SHARED_TASK_YES),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 def get_priority_keyboard():
     keyboard = [
         [
@@ -14,16 +23,25 @@ def get_priority_keyboard():
 from src.database.core import SessionLocal, ensure_user_categories
 from src.database.models import SubCategory
 
-def get_subcategory_keyboard(parent_category, chat_id=None):
+def get_subcategory_keyboard(parent_category, chat_id=None, is_shared=False):
     session = SessionLocal()
     try:
-        if chat_id:
-            ensure_user_categories(session, chat_id)
-        categories = session.query(SubCategory).filter(
-            SubCategory.parent == parent_category,
-            SubCategory.is_active == 1,
-            SubCategory.chat_id == chat_id
-        ).all()
+        if is_shared:
+            from src.database.core import ensure_shared_categories
+            ensure_shared_categories(session)
+            categories = session.query(SubCategory).filter(
+                SubCategory.parent == parent_category,
+                SubCategory.is_active == 1,
+                SubCategory.chat_id == 0
+            ).all()
+        else:
+            if chat_id:
+                ensure_user_categories(session, chat_id)
+            categories = session.query(SubCategory).filter(
+                SubCategory.parent == parent_category,
+                SubCategory.is_active == 1,
+                SubCategory.chat_id == chat_id
+            ).all()
         
         buttons = []
         # Group in pairs if possible

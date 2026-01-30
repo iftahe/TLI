@@ -46,3 +46,9 @@ EDITING_DESCRIPTION = 10
 
 # Custom Reminder State
 WAITING_CUSTOM_REMINDER = 11
+
+# Shared Task State & Callbacks
+SHARED_CHOICE = 12
+SHARED_TASK_YES = 'shared_yes'
+SHARED_TASK_NO = 'shared_no'
+SHARED_ICON = '👥'

@@ -15,6 +15,7 @@ class Task(Base):
     reminder_time = Column(DateTime, nullable=True)
     status = Column(String, default='pending')  # 'pending', 'done'
     recurrence = Column(String, nullable=True) # 'daily', 'weekly', 'monthly'
+    is_shared = Column(Integer, default=0)  # 1=shared (visible to all users), 0=personal
     created_at = Column(DateTime, default=func.now())
 
 class SubCategory(Base):

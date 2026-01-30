@@ -27,3 +27,26 @@ def is_user_allowed(user_id: int) -> bool:
     if ALLOWED_USERS is None:
         return True
     return user_id in ALLOWED_USERS
+
+def get_accessible_filter(chat_id):
+    """Returns a SQLAlchemy filter for tasks accessible to a user:
+    own tasks OR shared Home tasks."""
+    from sqlalchemy import or_, and_
+    from src.database.models import Task
+    return or_(
+        Task.chat_id == chat_id,
+        and_(Task.is_shared == 1, Task.parent_category == 'home')
+    )
+
+def get_accessible_task(session, task_id, chat_id):
+    """Fetches a task by ID if the user owns it or it's a shared Home task.
+    Returns the task or None."""
+    from sqlalchemy import or_, and_
+    from src.database.models import Task
+    return session.query(Task).filter(
+        Task.id == task_id,
+        or_(
+            Task.chat_id == chat_id,
+            and_(Task.is_shared == 1, Task.parent_category == 'home')
+        )
+    ).first()

@@ -6,7 +6,7 @@ load_dotenv()
 
 from src.database.core import init_db
 from migrate_db import migrate
-from src.scheduler.service import start_scheduler, add_daily_summary_job
+from src.scheduler.service import start_scheduler, add_daily_summary_job, recover_missed_reminders
 from src.bot.bot_app import create_app
 
 logging.basicConfig(
@@ -37,6 +37,10 @@ def main():
     logger.info("Starting Scheduler...")
     start_scheduler()
     add_daily_summary_job()
+
+    # 3b. Recover any missed reminders (from previous restarts/deploys)
+    logger.info("Checking for missed reminders...")
+    recover_missed_reminders()
 
     # 4. Start Bot
     logger.info("Starting Bot...")

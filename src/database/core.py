@@ -36,8 +36,20 @@ DEFAULT_CATEGORIES = [
     ("אחר 📂", "work"),
 ]
 
+SHARED_HOME_CATEGORIES = [
+    ("קניות 🛒", "home"),
+    ("תחזוקה 🔧", "home"),
+    ("ניקיון 🧹", "home"),
+    ("אחר 📂", "home"),
+]
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    session = SessionLocal()
+    try:
+        ensure_shared_categories(session)
+    finally:
+        session.close()
 
 def ensure_user_categories(session, chat_id: int):
     """Seeds default categories for a user if they have none yet."""
@@ -46,6 +58,17 @@ def ensure_user_categories(session, chat_id: int):
         defaults = [
             SubCategory(name=name, parent=parent, chat_id=chat_id, is_active=1)
             for name, parent in DEFAULT_CATEGORIES
+        ]
+        session.add_all(defaults)
+        session.commit()
+
+def ensure_shared_categories(session):
+    """Seeds shared Home sub-categories (chat_id=0 sentinel) if they don't exist yet."""
+    count = session.query(SubCategory).filter(SubCategory.chat_id == 0).count()
+    if count == 0:
+        defaults = [
+            SubCategory(name=name, parent=parent, chat_id=0, is_active=1)
+            for name, parent in SHARED_HOME_CATEGORIES
         ]
         session.add_all(defaults)
         session.commit()
