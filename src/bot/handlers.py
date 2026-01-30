@@ -49,14 +49,21 @@ async def description_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def priority_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
-    priority = query.data 
+
+    priority = query.data
     context.user_data['priority'] = priority
-    
+
     parent = context.user_data.get('parent')
+    try:
+        keyboard = get_subcategory_keyboard(parent, chat_id=update.effective_chat.id)
+    except Exception as e:
+        logger.error(f"Error building subcategory keyboard: {e}", exc_info=True)
+        await query.edit_message_text("❌ שגיאה בטעינת קטגוריות. נסה שוב עם /cancel ואז התחל משימה חדשה.")
+        return ConversationHandler.END
+
     await query.edit_message_text(
-        text=f"עדיפות נבחרה. קטגוריה:",
-        reply_markup=get_subcategory_keyboard(parent, chat_id=update.effective_chat.id)
+        text="עדיפות נבחרה. קטגוריה:",
+        reply_markup=keyboard
     )
     return SUB_CATEGORY
 
