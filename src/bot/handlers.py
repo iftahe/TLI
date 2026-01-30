@@ -1,6 +1,7 @@
+import re
 import logging
 from datetime import datetime, timedelta
-from src.bot.utils import get_now, to_naive_israel
+from src.bot.utils import get_now, to_naive_israel, ISRAEL_TZ
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from src.bot.constants import *
@@ -11,6 +12,37 @@ from src.database.models import Task, SubCategory
 from src.scheduler.service import add_reminder_job
 
 logger = logging.getLogger(__name__)
+
+def parse_custom_time(text: str):
+    """Parse HH:MM or DD/MM HH:MM into an aware Israel datetime.
+    Returns (datetime, error_message). On success error_message is None."""
+    text = text.strip()
+    now = get_now()
+
+    # Try DD/MM HH:MM
+    m = re.match(r'^(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})$', text)
+    if m:
+        day, month, hour, minute = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+        try:
+            reminder = now.replace(month=month, day=day, hour=hour, minute=minute, second=0, microsecond=0)
+        except ValueError:
+            return None, "תאריך לא תקין. נסה שוב בפורמט DD/MM HH:MM"
+        if reminder <= now:
+            return None, "הזמן שהוזן כבר עבר. הזן זמן עתידי."
+        return reminder, None
+
+    # Try HH:MM
+    m = re.match(r'^(\d{1,2}):(\d{2})$', text)
+    if m:
+        hour, minute = int(m.group(1)), int(m.group(2))
+        if hour > 23 or minute > 59:
+            return None, "שעה לא תקינה. נסה שוב בפורמט HH:MM"
+        reminder = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if reminder <= now:
+            reminder += timedelta(days=1)
+        return reminder, None
+
+    return None, "פורמט לא תקין. שלח HH:MM או DD/MM HH:MM"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("אנא התחל משימה עם 'בית' או 'עבודה'.")
@@ -103,6 +135,16 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = get_now()
     reminder_time = None
     
+    if choice == REMINDER_CUSTOM:
+        await query.edit_message_text(
+            "⏰ הקלד זמן תזכורת:\n"
+            "<b>HH:MM</b> — להיום (או מחר אם עבר)\n"
+            "<b>DD/MM HH:MM</b> — לתאריך מסוים\n\n"
+            "(שלח /cancel לביטול)",
+            parse_mode='HTML'
+        )
+        return WAITING_CUSTOM_REMINDER
+
     if choice == REMINDER_1H:
         reminder_time = now + timedelta(hours=1)
     elif choice == REMINDER_TONIGHT:
@@ -111,17 +153,13 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              reminder_time += timedelta(days=1)
     elif choice == REMINDER_TOMORROW:
         reminder_time = now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    elif choice == REMINDER_MORNING_930:
-        reminder_time = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        if reminder_time < now:
-            reminder_time += timedelta(days=1)
     elif choice == REMINDER_3D:
         reminder_time = now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
     elif choice == REMINDER_1W:
         reminder_time = now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(weeks=1)
     elif choice == REMINDER_NONE:
         reminder_time = None
-        
+
     session = SessionLocal()
     try:
         if reminder_time:
@@ -155,6 +193,53 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error saving task: {e}")
         await query.edit_message_text("❌ ארעה שגיאה בשמירת המשימה.")
+    finally:
+        session.close()
+
+    return ConversationHandler.END
+
+async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles free-text time input for custom reminders during task creation."""
+    text = update.message.text
+    reminder_time, error = parse_custom_time(text)
+
+    if error:
+        await update.message.reply_text(
+            f"❌ {error}\n\n"
+            "שלח <b>HH:MM</b> או <b>DD/MM HH:MM</b>\n"
+            "(או /cancel לביטול)",
+            parse_mode='HTML'
+        )
+        return WAITING_CUSTOM_REMINDER
+
+    session = SessionLocal()
+    try:
+        reminder_time_naive = to_naive_israel(reminder_time)
+        new_task = Task(
+            chat_id=update.effective_chat.id,
+            text=context.user_data['description'],
+            priority=context.user_data['priority'],
+            parent_category=context.user_data['parent'],
+            sub_category=context.user_data['subcategory'],
+            reminder_time=reminder_time_naive,
+            status='pending'
+        )
+        session.add(new_task)
+        session.commit()
+        session.refresh(new_task)
+
+        add_reminder_job(new_task.id, reminder_time, update.effective_chat.id)
+
+        time_str = reminder_time.strftime('%H:%M %d/%m')
+        await update.message.reply_text(
+            f"✅ <b>המשימה נשמרה</b>\n"
+            f"📝 {new_task.text}\n"
+            f"⏰ תזכורת: {time_str}",
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        logger.error(f"Error saving task with custom reminder: {e}")
+        await update.message.reply_text("❌ ארעה שגיאה בשמירת המשימה.")
     finally:
         session.close()
 
@@ -486,7 +571,7 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
 
     now = get_now()
     reminder_time = None
-    
+
     # Logic copied from reminder_callback but reused
     if choice == REMINDER_1H:
         reminder_time = now + timedelta(hours=1)
@@ -496,10 +581,6 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
              reminder_time += timedelta(days=1)
     elif choice == REMINDER_TOMORROW:
         reminder_time = now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    elif choice == REMINDER_MORNING_930:
-        reminder_time = now.replace(hour=9, minute=30, second=0, microsecond=0)
-        if reminder_time < now:
-            reminder_time += timedelta(days=1)
     elif choice == REMINDER_3D:
         reminder_time = now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
     elif choice == REMINDER_1W:
@@ -541,10 +622,70 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
     finally:
         session.close()
 
+async def custom_edit_reminder_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entry point for custom time input when editing an existing task's reminder."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    prefix_len = len(UPD_REMINDER_PREFIX)
+    rest = data[prefix_len:]
+    try:
+        task_id_str, _ = rest.split('_', 1)
+        task_id = int(task_id_str)
+    except ValueError:
+        return ConversationHandler.END
+
+    context.user_data['custom_reminder_task_id'] = task_id
+    await query.edit_message_text(
+        "⏰ הקלד זמן תזכורת:\n"
+        "<b>HH:MM</b> — להיום (או מחר אם עבר)\n"
+        "<b>DD/MM HH:MM</b> — לתאריך מסוים\n\n"
+        "(שלח /cancel לביטול)",
+        parse_mode='HTML'
+    )
+    return WAITING_CUSTOM_REMINDER
+
+async def custom_edit_reminder_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles free-text time input when editing an existing task's reminder."""
+    text = update.message.text
+    reminder_time, error = parse_custom_time(text)
+
+    if error:
+        await update.message.reply_text(
+            f"❌ {error}\n\n"
+            "שלח <b>HH:MM</b> או <b>DD/MM HH:MM</b>\n"
+            "(או /cancel לביטול)",
+            parse_mode='HTML'
+        )
+        return WAITING_CUSTOM_REMINDER
+
+    task_id = context.user_data.get('custom_reminder_task_id')
+    session = SessionLocal()
+    try:
+        task = session.query(Task).filter(Task.id == task_id, Task.chat_id == update.effective_chat.id).first()
+        if task:
+            task.reminder_time = to_naive_israel(reminder_time)
+            session.commit()
+            add_reminder_job(task.id, reminder_time, update.effective_chat.id)
+
+            time_str = reminder_time.strftime('%H:%M %d/%m')
+            kb = [[InlineKeyboardButton("🔙 חזרה למשימה", callback_data=f"{VIEW_TASK}{task_id}")]]
+            await update.message.reply_text(
+                f"✅ התזכורת עודכנה ל: {time_str}",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+        else:
+            await update.message.reply_text("❌ המשימה לא נמצאה")
+    finally:
+        session.close()
+
+    return ConversationHandler.END
+
 async def quick_add_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if not text: return
-    
+
     session = SessionLocal()
     try:
         new_task = Task(

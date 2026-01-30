@@ -60,6 +60,7 @@ def create_app():
             PRIORITY: [CallbackQueryHandler(priority_callback, pattern=f"^({PRIORITY_URGENT}|{PRIORITY_NORMAL}|{PRIORITY_LOW})$")],
             SUB_CATEGORY: [CallbackQueryHandler(subcategory_callback, pattern=r"^sub_")],
             REMINDER: [CallbackQueryHandler(reminder_callback, pattern=r"^reminder_")],
+            WAITING_CUSTOM_REMINDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reminder_handler)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
@@ -101,6 +102,17 @@ def create_app():
     # Snooze & Reminder editing
     app.add_handler(CallbackQueryHandler(snooze_callback, pattern=f"^{SNOOZE_1H_PREFIX}"))
     app.add_handler(CallbackQueryHandler(edit_reminder_handler, pattern=f"^{EDIT_REMINDER_PREFIX}"))
+
+    # Custom edit reminder conversation (must be before the generic update_reminder handler)
+    custom_edit_rem_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(custom_edit_reminder_entry, pattern=rf"^{UPD_REMINDER_PREFIX}\d+_{REMINDER_CUSTOM}$")],
+        states={
+            WAITING_CUSTOM_REMINDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_edit_reminder_handler)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    app.add_handler(custom_edit_rem_conv)
+
     app.add_handler(CallbackQueryHandler(update_reminder_handler, pattern=f"^{UPD_REMINDER_PREFIX}"))
 
     # Category delete
