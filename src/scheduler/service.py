@@ -72,16 +72,16 @@ def add_daily_briefing_job():
         )
 
 def recover_missed_reminders():
-    """Send reminders for tasks whose reminder_time has passed but were never delivered.
-    This handles cases where the bot was restarted and APScheduler dropped the jobs.
+    """Schedule immediate delivery for reminders missed while the bot was offline.
 
-    The session is closed BEFORE calling send_reminder_job (which creates its
-    own session). Task data is extracted into plain tuples first to avoid
-    lazy-loading on detached ORM objects.
+    Uses scheduler.add_job() (non-blocking) instead of calling send_reminder_job()
+    directly. Direct calls would invoke asyncio.run() on the main thread, blocking
+    startup — the bot would never reach run_polling().
     """
     from src.database.core import SessionLocal
     from src.database.models import Task
     from src.bot.utils import get_now, to_naive_israel
+    from datetime import datetime, timezone
 
     now_naive = to_naive_israel(get_now())
     session = SessionLocal()
@@ -96,7 +96,6 @@ def recover_missed_reminders():
             logger.info("No missed reminders to recover.")
             return
 
-        # Extract into plain tuples before closing session
         missed = [(t.id, t.chat_id) for t in tasks]
     except Exception as e:
         logger.error(f"Error querying missed reminders: {e}", exc_info=True)
@@ -104,11 +103,16 @@ def recover_missed_reminders():
     finally:
         session.close()
 
-    logger.info(f"Recovering {len(missed)} missed reminder(s)...")
-    from src.scheduler.jobs import send_reminder_job
+    logger.info(f"Scheduling {len(missed)} missed reminder(s) for background delivery...")
     for task_id, chat_id in missed:
         try:
-            logger.info(f"  Sending missed reminder for task {task_id} (chat_id={chat_id})")
-            send_reminder_job(task_id, chat_id)
+            scheduler.add_job(
+                'src.scheduler.jobs:send_reminder_job',
+                'date',
+                run_date=datetime.now(timezone.utc),
+                args=[task_id, chat_id],
+                id=f'recover_{task_id}',
+                replace_existing=True
+            )
         except Exception as e:
-            logger.error(f"  Failed to recover reminder for task {task_id}: {e}")
+            logger.error(f"  Failed to schedule recovery for task {task_id}: {e}")
