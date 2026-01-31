@@ -1,5 +1,6 @@
 import re
 import random
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from src.bot.utils import get_now, to_naive_israel, ISRAEL_TZ, get_accessible_filter, get_accessible_task
@@ -455,6 +456,7 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
 
     task_id = int(query.data.replace(DONE_TASK, ""))
     session = SessionLocal()
@@ -464,8 +466,14 @@ async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             phrase = _get_done_phrase(task.created_at)
             task.status = 'done'
             session.commit()
-            await query.answer(phrase, show_alert=False)
-            await list_tasks_command(update, context)
+
+            # Show sarcastic feedback — no buttons to prevent accidental clicks
+            await query.edit_message_text(f"✅ {phrase}", parse_mode='HTML')
+
+            # Let the user read, then return to dashboard
+            await asyncio.sleep(4)
+            from src.bot.dashboard_handlers import dashboard_command
+            await dashboard_command(update, context)
         else:
             await query.answer("המשימה לא נמצאה")
     finally:
