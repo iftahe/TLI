@@ -1,4 +1,5 @@
 import logging
+from sqlalchemy import text
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from src.database.core import engine
@@ -15,7 +16,29 @@ scheduler = BackgroundScheduler(
     job_defaults={'misfire_grace_time': None, 'coalesce': True}
 )
 
+# Job IDs that were renamed or removed in past updates.
+# Must be cleaned from the persistent store BEFORE scheduler.start(),
+# because APScheduler deserializes all stored jobs on start and crashes
+# with LookupError if the referenced function no longer exists.
+_STALE_JOB_IDS = ['daily_summary']
+
+def _clean_stale_jobs():
+    """Remove ghost jobs from the persistent store via raw SQL."""
+    try:
+        with engine.connect() as conn:
+            for job_id in _STALE_JOB_IDS:
+                result = conn.execute(
+                    text("DELETE FROM apscheduler_jobs WHERE id = :id"),
+                    {"id": job_id}
+                )
+                if result.rowcount:
+                    logger.info(f"Cleaned stale job '{job_id}' from persistent store")
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Could not clean stale jobs (table may not exist yet): {e}")
+
 def start_scheduler():
+    _clean_stale_jobs()
     scheduler.start()
 
 def add_reminder_job(task_id: int, run_date, chat_id: int):
@@ -38,9 +61,6 @@ def add_daily_briefing_job():
             id='daily_briefing',
             replace_existing=True
         )
-    # Clean up old job if it exists from previous versions
-    if scheduler.get_job('daily_summary'):
-        scheduler.remove_job('daily_summary')
 
 def recover_missed_reminders():
     """Send reminders for tasks whose reminder_time has passed but were never delivered.

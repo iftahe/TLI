@@ -72,7 +72,7 @@ def get_subcategory_keyboard(parent_category, chat_id=None, is_shared=False):
             logger.warning(f"get_subcategory_keyboard: attempt {attempt} failed ({elapsed:.2f}s): {e}")
             session.close()
             if attempt < 3:
-                time.sleep(0.5 * attempt)
+                time.sleep(1.0 * attempt)  # 1s, 2s — allows Neon cold start to complete
             continue
         finally:
             session.close()
