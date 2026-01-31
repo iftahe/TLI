@@ -319,38 +319,48 @@ async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 grouped[parent][sub] = []
             grouped[parent][sub].append(t)
 
-        header = f"📋 <b>כל המשימות</b> — {len(tasks)} פתוחות"
-        keyboard = []
+        text_lines = [f"📋 <b>כל המשימות</b> — {len(tasks)} פתוחות\n"]
+        buttons = []  # list of (label, callback_data) — will be paired into rows of 2
+        num = 0
 
         def add_section(parent_key, label, icon):
+            nonlocal num
             sub_cats = grouped.get(parent_key, {})
             if not any(sub_cats.values()):
-                return False
+                return
             total = sum(len(l) for l in sub_cats.values())
-            # Parent category header
-            keyboard.append([InlineKeyboardButton(f"━━ {icon} {label} ({total}) ━━", callback_data="ignore")])
+            text_lines.append(f"{icon} <b>{label}</b> ({total})")
             for sub_name, section_tasks in sub_cats.items():
                 if not section_tasks:
                     continue
-                # Subcategory header
-                keyboard.append([InlineKeyboardButton(f"── {sub_name} ──", callback_data="ignore")])
+                text_lines.append(f"  <b>{sub_name}</b>")
                 for t in section_tasks:
+                    num += 1
                     p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
                     shared_mark = " 👥" if t.is_shared else ""
-                    keyboard.append([InlineKeyboardButton(f"{p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
-            return True
+                    text_lines.append(f"    {num}. {t.text} {p_icon}{shared_mark}")
+                    buttons.append((f"{num}. {p_icon}{shared_mark} {t.text}", f"{VIEW_TASK}{t.id}"))
+            text_lines.append("")
 
         add_section(CATEGORY_HOME, "בית", "🏠")
         add_section(CATEGORY_WORK, "עבודה", "💼")
 
+        # Build keyboard: task buttons in rows of 2
+        keyboard = []
+        for i in range(0, len(buttons), 2):
+            row = [InlineKeyboardButton(buttons[i][0], callback_data=buttons[i][1])]
+            if i + 1 < len(buttons):
+                row.append(InlineKeyboardButton(buttons[i + 1][0], callback_data=buttons[i + 1][1]))
+            keyboard.append(row)
         keyboard.append([InlineKeyboardButton("🔙 חזרה לראשי", callback_data="back_to_dashboard")])
 
+        msg = "\n".join(text_lines)
         markup = InlineKeyboardMarkup(keyboard)
 
         if update.message:
-            await update.message.reply_text(header, reply_markup=markup, parse_mode='HTML')
+            await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
         elif update.callback_query:
-            await update.callback_query.edit_message_text(header, reply_markup=markup, parse_mode='HTML')
+            await update.callback_query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
 
     except Exception as e:
         logger.error(f"Error listing tasks: {e}")
@@ -488,26 +498,36 @@ async def filter_tasks_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 grouped[sub] = []
             grouped[sub].append(t)
 
-        header = f"{icon_main} <b>{category_label}</b> — {len(tasks)} משימות"
-
-        keyboard = []
+        text_lines = [f"{icon_main} <b>{category_label}</b> — {len(tasks)} משימות\n"]
+        buttons = []
+        num = 0
 
         if not tasks:
-            header = f"{icon_main} <b>{category_label}</b> — אין משימות"
+            text_lines = [f"{icon_main} <b>{category_label}</b> — אין משימות"]
         else:
             for sub_name, section_tasks in grouped.items():
                 if not section_tasks:
                     continue
-                # Section header — non-clickable
-                keyboard.append([InlineKeyboardButton(f"── {sub_name} ──", callback_data="ignore")])
+                text_lines.append(f"<b>{sub_name}</b>")
                 for t in section_tasks:
+                    num += 1
                     p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
                     shared_mark = " 👥" if t.is_shared else ""
-                    keyboard.append([InlineKeyboardButton(f"{p_icon} {t.text}{shared_mark}", callback_data=f"{VIEW_TASK}{t.id}")])
+                    text_lines.append(f"  {num}. {t.text} {p_icon}{shared_mark}")
+                    buttons.append((f"{num}. {p_icon}{shared_mark} {t.text}", f"{VIEW_TASK}{t.id}"))
+                text_lines.append("")
 
+        # Build keyboard: task buttons in rows of 2
+        keyboard = []
+        for i in range(0, len(buttons), 2):
+            row = [InlineKeyboardButton(buttons[i][0], callback_data=buttons[i][1])]
+            if i + 1 < len(buttons):
+                row.append(InlineKeyboardButton(buttons[i + 1][0], callback_data=buttons[i + 1][1]))
+            keyboard.append(row)
         keyboard.append([InlineKeyboardButton("🔙 חזרה לראשי", callback_data="back_to_dashboard")])
 
-        await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        msg = "\n".join(text_lines)
+        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
     finally:
         session.close()
