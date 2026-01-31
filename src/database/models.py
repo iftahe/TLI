@@ -17,6 +17,7 @@ class Task(Base):
     recurrence = Column(String, nullable=True) # 'daily', 'weekly', 'monthly'
     is_shared = Column(Integer, default=0)  # 1=shared (visible to all users), 0=personal
     created_at = Column(DateTime, default=func.now())
+    completed_at = Column(DateTime, nullable=True)
 
 class SubCategory(Base):
     __tablename__ = "sub_categories"

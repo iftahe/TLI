@@ -148,7 +148,8 @@ async def priority_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = get_subcategory_keyboard(parent, chat_id=update.effective_chat.id)
     except Exception as e:
         logger.error(f"Error building subcategory keyboard: {e}", exc_info=True)
-        await query.edit_message_text("❌ שגיאה בטעינת קטגוריות. נסה שוב עם /cancel ואז התחל משימה חדשה.")
+        context.user_data.clear()
+        await query.edit_message_text("❌ בעיית חיבור למסד הנתונים. נסה שוב בעוד כמה שניות.")
         return ConversationHandler.END
 
     await query.edit_message_text(
@@ -169,7 +170,8 @@ async def shared_choice_callback(update: Update, context: ContextTypes.DEFAULT_T
         keyboard = get_subcategory_keyboard(parent, chat_id=update.effective_chat.id, is_shared=is_shared)
     except Exception as e:
         logger.error(f"Error building subcategory keyboard: {e}", exc_info=True)
-        await query.edit_message_text("❌ שגיאה בטעינת קטגוריות. נסה שוב עם /cancel ואז התחל משימה חדשה.")
+        context.user_data.clear()
+        await query.edit_message_text("❌ בעיית חיבור למסד הנתונים. נסה שוב בעוד כמה שניות.")
         return ConversationHandler.END
 
     label = "👥 משותף" if is_shared else "👤 אישי"
@@ -332,6 +334,11 @@ async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keys = ['parent', 'description', 'priority', 'is_shared',
+            'subcategory', 'editing_task_id', 'new_cat_parent',
+            'custom_reminder_task_id']
+    for k in keys:
+        context.user_data.pop(k, None)
     await update.message.reply_text('פעולה בוטלה.')
     return ConversationHandler.END
 
@@ -465,6 +472,7 @@ async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if task:
             phrase = _get_done_phrase(task.created_at)
             task.status = 'done'
+            task.completed_at = to_naive_israel(get_now())
             session.commit()
 
             # Show sarcastic feedback — no buttons to prevent accidental clicks

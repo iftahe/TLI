@@ -1,5 +1,9 @@
+import time
+import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from src.bot.constants import *
+
+logger = logging.getLogger(__name__)
 
 def get_shared_choice_keyboard():
     keyboard = [
@@ -24,44 +28,57 @@ from src.database.core import SessionLocal, ensure_user_categories
 from src.database.models import SubCategory
 
 def get_subcategory_keyboard(parent_category, chat_id=None, is_shared=False):
-    session = SessionLocal()
-    try:
-        if is_shared:
-            from src.database.core import ensure_shared_categories
-            ensure_shared_categories(session)
-            categories = session.query(SubCategory).filter(
-                SubCategory.parent == parent_category,
-                SubCategory.is_active == 1,
-                SubCategory.chat_id == 0
-            ).all()
-        else:
-            if chat_id:
-                ensure_user_categories(session, chat_id)
-            categories = session.query(SubCategory).filter(
-                SubCategory.parent == parent_category,
-                SubCategory.is_active == 1,
-                SubCategory.chat_id == chat_id
-            ).all()
-        
-        buttons = []
-        # Group in pairs if possible
-        row = []
-        for cat in categories:
-            # We use name as value for now for backward compatibility or ID? 
-            # Let's use ID to be robust: 'sub_ID'
-            row.append(InlineKeyboardButton(cat.name, callback_data=f'sub_{cat.id}'))
-            if len(row) == 2:
+    last_exc = None
+    for attempt in range(1, 4):
+        start = time.monotonic()
+        session = SessionLocal()
+        try:
+            if is_shared:
+                from src.database.core import ensure_shared_categories
+                ensure_shared_categories(session)
+                categories = session.query(SubCategory).filter(
+                    SubCategory.parent == parent_category,
+                    SubCategory.is_active == 1,
+                    SubCategory.chat_id == 0
+                ).all()
+            else:
+                if chat_id:
+                    ensure_user_categories(session, chat_id)
+                categories = session.query(SubCategory).filter(
+                    SubCategory.parent == parent_category,
+                    SubCategory.is_active == 1,
+                    SubCategory.chat_id == chat_id
+                ).all()
+
+            buttons = []
+            row = []
+            for cat in categories:
+                row.append(InlineKeyboardButton(cat.name, callback_data=f'sub_{cat.id}'))
+                if len(row) == 2:
+                    buttons.append(row)
+                    row = []
+            if row:
                 buttons.append(row)
-                row = []
-        if row:
-            buttons.append(row)
-            
-        if not buttons:
-            buttons.append([InlineKeyboardButton("אין קטגוריות", callback_data='sub_none')])
-            
-        return InlineKeyboardMarkup(buttons)
-    finally:
-        session.close()
+
+            if not buttons:
+                buttons.append([InlineKeyboardButton("אין קטגוריות", callback_data='sub_none')])
+
+            elapsed = time.monotonic() - start
+            logger.info(f"get_subcategory_keyboard: loaded {len(categories)} categories (attempt {attempt}, {elapsed:.2f}s)")
+            return InlineKeyboardMarkup(buttons)
+        except Exception as e:
+            elapsed = time.monotonic() - start
+            last_exc = e
+            logger.warning(f"get_subcategory_keyboard: attempt {attempt} failed ({elapsed:.2f}s): {e}")
+            session.close()
+            if attempt < 3:
+                time.sleep(0.5 * attempt)
+            continue
+        finally:
+            session.close()
+
+    logger.error("get_subcategory_keyboard: all 3 attempts failed", exc_info=last_exc)
+    raise last_exc
 
 def get_reminder_keyboard(task_id=None):
     # If task_id is provided, we use the update prefix: upd_rem_<task_id>_<type>

@@ -12,10 +12,21 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 connect_args = {}
+engine_kwargs = {}
+
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+else:
+    # PostgreSQL (Neon serverless) resilience
+    connect_args = {"connect_timeout": 10}
+    engine_kwargs = {
+        "pool_pre_ping": True,    # test connection before use — auto-reconnects stale ones
+        "pool_recycle": 300,      # recycle every 5 min (before Neon idle timeout)
+        "pool_size": 5,
+        "pool_timeout": 30,
+    }
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Configure JobStore for APScheduler

@@ -8,6 +8,7 @@ MIGRATIONS = [
     ("tasks", "recurrence", "ALTER TABLE tasks ADD COLUMN recurrence VARCHAR"),
     ("sub_categories", "chat_id", "ALTER TABLE sub_categories ADD COLUMN chat_id BIGINT"),
     ("tasks", "is_shared", "ALTER TABLE tasks ADD COLUMN is_shared INTEGER DEFAULT 0"),
+    ("tasks", "completed_at", "ALTER TABLE tasks ADD COLUMN completed_at DATETIME"),
 ]
 
 def migrate():

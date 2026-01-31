@@ -28,16 +28,19 @@ def add_reminder_job(task_id: int, run_date, chat_id: int):
         replace_existing=True
     )
 
-def add_daily_summary_job():
-    if not scheduler.get_job('daily_summary'):
+def add_daily_briefing_job():
+    if not scheduler.get_job('daily_briefing'):
         scheduler.add_job(
-            'src.scheduler.jobs:daily_summary_job',
+            'src.scheduler.jobs:daily_briefing_job',
             'cron',
             hour=9,
-            minute=0,
-            id='daily_summary',
+            minute=35,
+            id='daily_briefing',
             replace_existing=True
         )
+    # Clean up old job if it exists from previous versions
+    if scheduler.get_job('daily_summary'):
+        scheduler.remove_job('daily_summary')
 
 def recover_missed_reminders():
     """Send reminders for tasks whose reminder_time has passed but were never delivered.
