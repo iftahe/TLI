@@ -1,4 +1,3 @@
-from src.database.core import engine
 from sqlalchemy import text
 import logging
 
@@ -12,14 +11,18 @@ MIGRATIONS = [
 ]
 
 def migrate():
+    from src.database.core import SessionLocal
     for table, column, sql in MIGRATIONS:
+        session = SessionLocal()
         try:
-            with engine.connect() as conn:
-                conn.execute(text(sql))
-                conn.commit()
-                logger.info(f"Added '{column}' column to '{table}'.")
+            session.execute(text(sql))
+            session.commit()
+            logger.info(f"Added '{column}' column to '{table}'.")
         except Exception as e:
+            session.rollback()
             logger.info(f"Column '{column}' on '{table}' already exists or migration skipped: {e}")
+        finally:
+            session.close()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
