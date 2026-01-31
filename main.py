@@ -53,6 +53,18 @@ def main():
     logger.info("Running migrations...")
     migrate()
 
+    # 2d. Verify critical columns exist
+    session = SessionLocal()
+    try:
+        session.execute(text("SELECT completed_at FROM tasks LIMIT 0"))
+        logger.info("Schema verification: completed_at column OK")
+    except Exception as e:
+        logger.error(f"FATAL: completed_at column missing after migration — {e}")
+        session.rollback()
+        return
+    finally:
+        session.close()
+
     # 3. Start Scheduler
     logger.info("Starting Scheduler...")
     start_scheduler()
