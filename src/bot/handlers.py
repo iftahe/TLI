@@ -1,4 +1,5 @@
 import re
+import random
 import logging
 from datetime import datetime, timedelta
 from src.bot.utils import get_now, to_naive_israel, ISRAEL_TZ, get_accessible_filter, get_accessible_task
@@ -12,6 +13,51 @@ from src.database.models import Task, SubCategory
 from src.scheduler.service import add_reminder_job
 
 logger = logging.getLogger(__name__)
+
+# Sarcastic feedback phrases (plural Hebrew) by completion-time bucket
+_DONE_PHRASES = {
+    'obsessive': [  # < 5 hours
+        "פחות מ-5 שעות? ישבתם וחיכיתם ליד הטלפון שזה יקרה? לכו לנשום אוויר 🧘‍♂️💨",
+        "מהירים כמו ברק! חשבתי שזה באג, אף אחד לא מסיים כל כך מהר 😱⚡",
+        "רגע, סיימתם את זה ככה מהר? בטוח שעשיתם את זה כמו שצריך? 🤔🏃",
+        "אוקיי, הבנו, אתם יעילים. אפשר גם קצת להירגע 😤✨",
+    ],
+    'normal': [  # 5 – 48 hours
+        "קצב של צב עם אישיות, אבל העיקר שזה נעשה 🐌😏",
+        "סבבה, לקח לכם קצת זמן אבל עדיין בטווח הנורמלי. כל הכבוד 👏🎭",
+        "יום-יומיים? קלאסי שלכם. לא מהר מדי, לא לאט מדי 📊😌",
+        "הו, נזכרתם! חשבתי שכבר שכחתם. נחמד שהפתעתם 🎉😏",
+    ],
+    'procrastinator': [  # 2 – 7 days
+        "אני בהלם, באמת נזכרתם בזה? הופתעתי לטובה מהתפקוד המאוחר 🧐👏",
+        "שבוע כמעט עבר ורק עכשיו? טוב, עדיף מאוחר מאשר... רגע, זה כבר מאוחר 😅⏰",
+        "אחרי כמה ימים של התלבטות סוף סוף עשיתם את זה. גיבורים 🦸‍♂️🐢",
+        "חשבתי שהמשימה הזו כבר פרשה לגמלאות, אבל הנה, הפתעה! 🎊😲",
+    ],
+    'archeologist': [  # > 7 days
+        "נס חנוכה! אחרי יותר משבוע נזכרתם בזה? כמעט העברתי את זה לירושה 👵👴",
+        "חפירה ארכיאולוגית! מצאתם משימה עתיקה ואפילו סיימתם אותה 🏛️🪨",
+        "חשבתי שהמשימה הזו כבר קיבלה אזרחות. שבוע+! שיא חדש 🏆🗓️",
+        "המשימה הזו כבר הספיקה ללמוד שפה חדשה. אתם? רק סיימתם אותה 📚🌍",
+    ],
+}
+
+def _get_done_phrase(created_at) -> str:
+    """Pick a random sarcastic phrase based on how long the task was open."""
+    if not created_at:
+        return random.choice(_DONE_PHRASES['normal'])
+    now_naive = get_now().replace(tzinfo=None)
+    elapsed = now_naive - created_at
+    hours = elapsed.total_seconds() / 3600
+    if hours < 5:
+        bucket = 'obsessive'
+    elif hours < 48:
+        bucket = 'normal'
+    elif hours < 168:  # 7 days
+        bucket = 'procrastinator'
+    else:
+        bucket = 'archeologist'
+    return random.choice(_DONE_PHRASES[bucket])
 
 def parse_custom_time(text: str):
     """Parse HH:MM or DD/MM HH:MM into an aware Israel datetime.
@@ -409,20 +455,19 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
-    
+
     task_id = int(query.data.replace(DONE_TASK, ""))
     session = SessionLocal()
     try:
         task = get_accessible_task(session, task_id, update.effective_chat.id)
         if task:
+            phrase = _get_done_phrase(task.created_at)
             task.status = 'done'
             session.commit()
-            await query.answer("המשימה סומנה כבוצעה! 🎉")
-            # Return to list
+            await query.answer(phrase, show_alert=False)
             await list_tasks_command(update, context)
         else:
-             await query.answer("המשימה לא נמצאה")
+            await query.answer("המשימה לא נמצאה")
     finally:
         session.close()
 
