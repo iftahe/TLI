@@ -181,6 +181,7 @@ def evening_brief_job():
         # --- Calendar setup ---
         cal_service = get_calendar_service()
         cal_map = get_calendar_map()
+        logger.info(f"Evening brief: cal_service={'OK' if cal_service else 'None'}, cal_map={cal_map}")
 
         # --- Task reflection data ---
         completed_today_all = session.query(Task).filter(
@@ -222,10 +223,16 @@ def evening_brief_job():
             msg += weather_section
 
             # Calendar (per user)
-            if cal_service and chat_id in cal_map:
+            if not cal_service:
+                logger.debug(f"Evening brief: skipping calendar for {chat_id} — no service")
+            elif chat_id not in cal_map:
+                logger.info(f"Evening brief: skipping calendar for {chat_id} — not in cal_map (keys: {list(cal_map.keys())})")
+            else:
                 events = get_tomorrow_events(cal_service, cal_map[chat_id])
                 if events is not None:
                     msg += format_events_section(events) + "\n\n"
+                else:
+                    logger.warning(f"Evening brief: get_tomorrow_events returned None for {chat_id}")
 
             # Task reflection
             my_completed = user_completed.get(chat_id, 0) + shared_completed

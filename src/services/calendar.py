@@ -17,11 +17,14 @@ def get_calendar_service():
     """
     key_b64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_KEY", "")
     if not key_b64.strip():
+        logger.warning("Calendar: GOOGLE_SERVICE_ACCOUNT_KEY is empty — skipping")
         return None
 
     try:
         key_json = base64.b64decode(key_b64)
         info = json.loads(key_json)
+        sa_email = info.get("client_email", "???")
+        logger.info(f"Calendar: decoded service account key for {sa_email}")
 
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
@@ -29,9 +32,14 @@ def get_calendar_service():
         creds = service_account.Credentials.from_service_account_info(
             info, scopes=["https://www.googleapis.com/auth/calendar.readonly"]
         )
-        return build("calendar", "v3", credentials=creds)
+        svc = build("calendar", "v3", credentials=creds)
+        logger.info("Calendar: Google Calendar service built successfully")
+        return svc
+    except (base64.binascii.Error, json.JSONDecodeError) as e:
+        logger.error(f"Calendar: failed to decode/parse service account key: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Failed to build Google Calendar service: {e}", exc_info=True)
+        logger.error(f"Calendar: failed to build service: {e}", exc_info=True)
         return None
 
 
@@ -43,6 +51,7 @@ def get_calendar_map() -> dict:
     """
     raw = os.getenv("CALENDAR_MAP", "")
     if not raw.strip():
+        logger.warning("Calendar: CALENDAR_MAP is empty — no user-to-calendar mapping")
         return {}
 
     result = {}
@@ -54,7 +63,8 @@ def get_calendar_map() -> dict:
         try:
             result[int(chat_id_str.strip())] = cal_id.strip()
         except ValueError:
-            logger.warning(f"Invalid chat_id in CALENDAR_MAP: '{chat_id_str}'")
+            logger.warning(f"Calendar: invalid chat_id in CALENDAR_MAP: '{chat_id_str}'")
+    logger.info(f"Calendar: loaded {len(result)} mapping(s): chat_ids={list(result.keys())}")
     return result
 
 
@@ -74,6 +84,11 @@ def get_tomorrow_events(service, calendar_id: str) -> list | None:
         time_min = tomorrow.isoformat()
         time_max = tomorrow_end.isoformat()
 
+        logger.info(
+            f"Calendar: fetching events for '{calendar_id}' "
+            f"range {time_min} → {time_max}"
+        )
+
         events_result = (
             service.events()
             .list(
@@ -86,8 +101,11 @@ def get_tomorrow_events(service, calendar_id: str) -> list | None:
             .execute()
         )
 
+        raw_items = events_result.get("items", [])
+        logger.info(f"Calendar: got {len(raw_items)} raw event(s) from API")
+
         events = []
-        for item in events_result.get("items", []):
+        for item in raw_items:
             title = item.get("summary", "(ללא כותרת)")
             start = item.get("start", {})
 
@@ -100,10 +118,11 @@ def get_tomorrow_events(service, calendar_id: str) -> list | None:
 
             events.append({"time": time_str, "title": title})
 
+        logger.info(f"Calendar: returning {len(events)} parsed event(s)")
         return events
     except Exception as e:
         logger.error(
-            f"Failed to fetch events for calendar '{calendar_id}': {e}",
+            f"Calendar: failed to fetch events for '{calendar_id}': {e}",
             exc_info=True,
         )
         return None
