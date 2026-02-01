@@ -103,6 +103,149 @@ def _format_task_line(task, now_naive):
     age = _age_indicator(task.created_at, now_naive)
     return f"  {icon} {task.text}{age}"
 
+# Sarcastic evening reflection hooks keyed by performance bracket
+_EVENING_HOOKS = {
+    'productive': [  # completed >= 5
+        "יום פרודוקטיבי! סימנתם {count} משימות. מחר אפשר לנוח... או לא 💪🔥",
+        "{count} משימות היום? מישהו רצה להרשים. הצלחתם 🏆",
+        "וואלה, {count} משימות. אם ככה כל יום — תגמרו את הכל עד יום שישי 📈",
+    ],
+    'decent': [  # completed >= 2
+        "סיימתם {count} משימות היום. לא רע, לא מדהים. יום רגיל של אנשים רגילים 👍",
+        "{count} משימות מסומנות. ההתקדמות קיימת, גם אם לא דרמטית 🚶‍♂️",
+        "יום סביר — {count} משימות ירדו מהרשימה. מחר ממשיכים 📋",
+    ],
+    'minimal': [  # completed == 1
+        "משימה אחת. אחת בודדה. טוב, לפחות הראיתם שאתם חיים 🫠",
+        "סימנתם משימה אחת היום. הרשימה שולחת תודה מעומק הלב 🙏",
+        "1. אחד. יחיד. בודד. זה מה שהיה היום. מחר יותר? 🤞",
+    ],
+    'zero': [  # completed == 0
+        "אפס משימות היום. הרשימה בדיוק כמו שהייתה בבוקר. קונסיסטנטיות! 🫡",
+        "יום בלי אף V. המשימות חוגגות — עוד יום חיים 🎊📋",
+        "היום? כלום. נאדה. אפס. מחר זה יום חדש. חדש! 🌅",
+    ],
+}
+
+def _get_evening_reflection(completed_today, urgent_pending):
+    """Pick a sarcastic evening reflection based on today's completions."""
+    if completed_today >= 5:
+        line = random.choice(_EVENING_HOOKS['productive']).format(count=completed_today)
+    elif completed_today >= 2:
+        line = random.choice(_EVENING_HOOKS['decent']).format(count=completed_today)
+    elif completed_today == 1:
+        line = random.choice(_EVENING_HOOKS['minimal'])
+    else:
+        line = random.choice(_EVENING_HOOKS['zero'])
+
+    if urgent_pending > 0:
+        line += f"\n⚠️ {urgent_pending} משימות דחופות עדיין פתוחות. רק אומר."
+
+    return line
+
+
+def evening_brief_job():
+    """Send the 20:30 evening brief to each user."""
+    from src.bot.utils import ALLOWED_USERS, get_now
+    from src.services.weather import (
+        get_tomorrow_forecast,
+        format_clothing_recommendation,
+        format_weather_line,
+    )
+    from src.services.calendar import (
+        get_calendar_service,
+        get_calendar_map,
+        get_tomorrow_events,
+        format_events_section,
+    )
+
+    session = SessionLocal()
+    try:
+        now = get_now()
+        now_naive = now.replace(tzinfo=None)
+        today_start = now_naive.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # --- Weather (shared across all users) ---
+        api_key = os.getenv("OPENWEATHER_API_KEY")
+        weather_section = ""
+        if api_key:
+            forecast = get_tomorrow_forecast(api_key)
+            if forecast:
+                weather_section = (
+                    format_clothing_recommendation(forecast) + "\n"
+                    + format_weather_line(forecast) + "\n\n"
+                )
+            else:
+                weather_section = "🌤️ שירות מזג האוויר לא זמין\n\n"
+
+        # --- Calendar setup ---
+        cal_service = get_calendar_service()
+        cal_map = get_calendar_map()
+
+        # --- Task reflection data ---
+        completed_today_all = session.query(Task).filter(
+            Task.status == 'done',
+            Task.completed_at >= today_start,
+            Task.completed_at <= now_naive,
+        ).all()
+
+        pending_urgent = session.query(Task).filter(
+            Task.status == 'pending',
+            Task.priority == 'urgent',
+        ).all()
+
+        user_completed = {}
+        shared_completed = 0
+        for t in completed_today_all:
+            if t.is_shared:
+                shared_completed += 1
+            else:
+                user_completed[t.chat_id] = user_completed.get(t.chat_id, 0) + 1
+
+        user_urgent = {}
+        shared_urgent = 0
+        for t in pending_urgent:
+            if t.is_shared:
+                shared_urgent += 1
+            else:
+                user_urgent[t.chat_id] = user_urgent.get(t.chat_id, 0) + 1
+
+        # All users to notify
+        all_user_ids = set(user_completed.keys())
+        if ALLOWED_USERS:
+            all_user_ids.update(ALLOWED_USERS)
+
+        for chat_id in all_user_ids:
+            msg = f"🌙 <b>תדריך ערב</b> — {now_naive.strftime('%d/%m')}\n\n"
+
+            # Weather (same for all)
+            msg += weather_section
+
+            # Calendar (per user)
+            if cal_service and chat_id in cal_map:
+                events = get_tomorrow_events(cal_service, cal_map[chat_id])
+                if events is not None:
+                    msg += format_events_section(events) + "\n\n"
+
+            # Task reflection
+            my_completed = user_completed.get(chat_id, 0) + shared_completed
+            my_urgent = user_urgent.get(chat_id, 0) + shared_urgent
+            msg += _get_evening_reflection(my_completed, my_urgent)
+
+            msg += "\n\nלילה טוב 🌜"
+
+            try:
+                asyncio.run(send_message_async(chat_id, msg))
+                logger.info(f"Evening brief sent to chat {chat_id}")
+            except Exception as e:
+                logger.error(f"Failed to send evening brief to chat {chat_id}: {e}", exc_info=True)
+
+    except Exception as e:
+        logger.error(f"Error in evening_brief_job: {e}", exc_info=True)
+    finally:
+        session.close()
+
+
 def daily_briefing_job():
     from src.bot.utils import ALLOWED_USERS, get_now
 

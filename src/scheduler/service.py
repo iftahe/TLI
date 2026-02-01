@@ -71,6 +71,17 @@ def add_daily_briefing_job():
             replace_existing=True
         )
 
+def add_evening_brief_job():
+    if not scheduler.get_job('evening_brief'):
+        scheduler.add_job(
+            'src.scheduler.jobs:evening_brief_job',
+            'cron',
+            hour=20,
+            minute=30,
+            id='evening_brief',
+            replace_existing=True
+        )
+
 def recover_missed_reminders():
     """Schedule immediate delivery for reminders missed while the bot was offline.
 
