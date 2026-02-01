@@ -187,15 +187,17 @@ async def subcategory_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     
     sub_data = query.data
     if sub_data.startswith('sub_'):
+        session = SessionLocal()
         try:
             sub_id = int(sub_data.replace('sub_', ''))
-            # Fetch name
-            session = SessionLocal()
             cat = session.query(SubCategory).filter(SubCategory.id == sub_id).first()
             name = cat.name if cat else "כללי"
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error fetching subcategory: {e}")
+            name = "כללי"
+        finally:
             session.close()
-        except ValueError:
-             name = "כללי"
     else:
         name = "כללי"
 
@@ -276,6 +278,7 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
     except Exception as e:
+        session.rollback()
         logger.error(f"Error saving task: {e}")
         await query.edit_message_text("❌ ארעה שגיאה בשמירת המשימה.")
     finally:
@@ -326,6 +329,7 @@ async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
             parse_mode='HTML'
         )
     except Exception as e:
+        session.rollback()
         logger.error(f"Error saving task with custom reminder: {e}")
         await update.message.reply_text("❌ ארעה שגיאה בשמירת המשימה.")
     finally:
@@ -417,6 +421,7 @@ async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.callback_query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
 
     except Exception as e:
+        session.rollback()
         logger.error(f"Error listing tasks: {e}")
         if update.message:
             await update.message.reply_text("❌ שגיאה בשליפת המשימות.")
@@ -447,7 +452,7 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"🔒 סוג: {shared_line}\n"
             f"⏰ תזכורת: {time_str}"
         )
-        
+
         keyboard = [
             [
                 InlineKeyboardButton("✅ סיים", callback_data=f"{DONE_TASK}{task.id}"),
@@ -457,7 +462,11 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="back_to_list")]
         ]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
-        
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error viewing task: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת המשימה.")
     finally:
         session.close()
 
@@ -484,6 +493,10 @@ async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await dashboard_command(update, context)
         else:
             await query.answer("המשימה לא נמצאה")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error marking task done: {e}")
+        await query.edit_message_text("❌ שגיאה בסימון המשימה.")
     finally:
         session.close()
 
@@ -511,12 +524,16 @@ async def save_edit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             task.text = new_text
             session.commit()
             await update.message.reply_text("✅ התיאור עודכן בהצלחה!")
-            
+
             # Show the updated task view manually (cant edit message from here easily without sending new menu)
             # We will just show the main list again
             await list_tasks_command(update, context)
         else:
             await update.message.reply_text("❌ המשימה לא נמצאה.")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error saving task edit: {e}")
+        await update.message.reply_text("❌ שגיאה בעדכון המשימה.")
     finally:
         session.close()
     
@@ -590,6 +607,10 @@ async def filter_tasks_callback(update: Update, context: ContextTypes.DEFAULT_TY
         msg = "\n".join(text_lines)
         await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error filtering tasks: {e}")
+        await query.edit_message_text("❌ שגיאה בסינון המשימות.")
     finally:
         session.close()
 
@@ -613,17 +634,21 @@ async def snooze_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if task:
             # new_time is aware
             new_time = get_now() + timedelta(hours=1)
-            
+
             # Save naive to DB
             task.reminder_time = to_naive_israel(new_time)
             session.commit()
-            
+
             # Reschedule with aware time
             add_reminder_job(task.id, new_time, update.effective_chat.id)
-            
+
             await query.edit_message_text(f"💤 התזכורת נדחתה לשעה {new_time.strftime('%H:%M')}")
         else:
             await query.edit_message_text("❌ המשימה לא נמצאה")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error snoozing reminder: {e}")
+        await query.edit_message_text("❌ שגיאה בדחיית התזכורת.")
     finally:
         session.close()
 
@@ -715,6 +740,10 @@ async def update_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
             
         else:
             await query.edit_message_text("❌ המשימה לא נמצאה")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error updating reminder: {e}")
+        await query.edit_message_text("❌ שגיאה בעדכון התזכורת.")
     finally:
         session.close()
 
@@ -773,6 +802,10 @@ async def custom_edit_reminder_handler(update: Update, context: ContextTypes.DEF
             )
         else:
             await update.message.reply_text("❌ המשימה לא נמצאה")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error updating custom reminder: {e}")
+        await update.message.reply_text("❌ שגיאה בעדכון התזכורת.")
     finally:
         session.close()
 
@@ -803,6 +836,7 @@ async def quick_add_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await dashboard_command(update, context)
         
     except Exception as e:
+        session.rollback()
         logger.error(f"Error quick add: {e}")
         await update.message.reply_text("❌ שגיאה בהוספה מהירה")
     finally:
