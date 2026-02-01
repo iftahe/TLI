@@ -29,7 +29,7 @@ def send_reminder_job(task_id, chat_id):
             from src.bot.constants import SNOOZE_1H_PREFIX, EDIT_TASK, VIEW_TASK
 
             keyboard = [
-                [InlineKeyboardButton("💤 נודניק (1 שעה)", callback_data=f"{SNOOZE_1H_PREFIX}{task.id}")],
+                [InlineKeyboardButton("💤 דחייה (שעה)", callback_data=f"{SNOOZE_1H_PREFIX}{task.id}")],
                 [InlineKeyboardButton("✏️ ערוך/צפה", callback_data=f"{VIEW_TASK}{task.id}")]
             ]
             markup = InlineKeyboardMarkup(keyboard)
@@ -43,37 +43,36 @@ def send_reminder_job(task_id, chat_id):
     finally:
         session.close()
 
-# Sarcastic opening hooks keyed by performance bracket
+# Morning briefing hooks keyed by performance bracket
 _BRIEFING_HOOKS = {
     'amazing': [  # completed > remaining
-        "וואו, אתמול הייתם מכונת ביצוע! היום בוא נראה אם זה לא היה מקרי 🏆🎰",
-        "אתמול סיימתם יותר ממה שנשאר — חשודים ביעילות. המשיכו ככה 🕵️✨",
-        "מישהו שם קפה כפול אתמול? ביצועים מרשימים. היום אל תאכזבו 💪☕",
+        "אתמול סיימתם יותר משימות ממה שנשאר — התקדמות מצוינת ✅",
+        "ביצוע חזק אתמול. המומנטום לטובתכם, בואו נמשיך 💪",
+        "קצב עבודה גבוה אתמול. יום טוב להמשיך באותו כיוון ✅",
     ],
     'good': [  # completed >= 2 and completed >= remaining/2
-        "אתמול הייתם בסדר גמור. לא גיבורי על, אבל גם לא אסון. ממוצע יציב 📊👍",
-        "סיימתם כמה דברים אתמול — נחמד. היום יש הזדמנות להתקדם עוד 🚶‍♂️🌤️",
-        "אתמול עבדתם, היום עובדים. החיים ממשיכים. בואו נראה מה יש 📋🫡",
+        "אתמול הייתה התקדמות טובה. הנה הסיכום להיום 📋",
+        "סיימתם כמה משימות אתמול — בואו נראה מה על הפרק היום 📋",
+        "יום פרודוקטיבי אתמול. הנה המשימות להיום 📋",
     ],
     'meh': [  # completed == 1
-        "אתמול סיימתם משימה אחת. אחת. נו, עדיף מאפס, נכון? 🤷‍♂️1️⃣",
-        "משימה אחת אתמול? לפחות היה סימן חיים. היום אפשר לשפר 📈🐌",
-        "אוקיי, אתמול לא היה היום הכי פרודוקטיבי. קורה. היום זה היום 🌅💫",
+        "אתמול הושלמה משימה אחת. כל צעד קדימה נחשב 📋",
+        "משימה אחת הושלמה אתמול. היום אפשר להתקדם עוד 📋",
+        "הושלמה משימה אתמול. הנה מה שממתין להיום 📋",
     ],
     'zero': [  # completed == 0, remaining > 0
-        "אתמול? אפס. נאדה. כלום. בוא ננסה משהו חדש — לעשות דברים 🫠📭",
-        "אתמול הייתם בחופשה מנטלית. היום חוזרים לעבודה, כן? 🏖️➡️💼",
-        "אפס משימות אתמול. המשימות לא הולכות לשום מקום, הן מחכות בסבלנות 🧘‍♀️⏳",
-        "יום אחד בלי אף סימון V. חלום של כל משימה — לחיות לנצח 🧟‍♂️📋",
+        "אתמול לא הושלמו משימות. הנה הרשימה המעודכנת להיום 📋",
+        "יום חדש, התחלה חדשה. הנה המשימות שממתינות 📋",
+        "לא היה סימון אתמול — היום הזדמנות להתקדם 📋",
     ],
     'clean': [  # no pending tasks at all
-        "אין לכם אף משימה פתוחה. מה אתם, רובוטים? תהנו מהיום 🤖🎉",
-        "רשימה ריקה. יום חופשי. אלא אם כן שכחתם להוסיף משהו 🤔🏝️",
+        "אין משימות פתוחות כרגע. יום פנוי ✅",
+        "הרשימה ריקה — אין משימות ממתינות ✅",
     ],
 }
 
 def _get_briefing_hook(completed_yesterday, remaining_today):
-    """Pick a sarcastic opening based on yesterday's performance."""
+    """Pick a morning briefing opening based on yesterday's performance."""
     if remaining_today == 0 and completed_yesterday == 0:
         return random.choice(_BRIEFING_HOOKS['clean'])
     if remaining_today == 0:
@@ -103,32 +102,32 @@ def _format_task_line(task, now_naive):
     age = _age_indicator(task.created_at, now_naive)
     return f"  {icon} {task.text}{age}"
 
-# Sarcastic evening reflection hooks keyed by performance bracket
+# Evening reflection hooks keyed by performance bracket
 _EVENING_HOOKS = {
     'productive': [  # completed >= 5
-        "יום פרודוקטיבי! סימנתם {count} משימות. מחר אפשר לנוח... או לא 💪🔥",
-        "{count} משימות היום? מישהו רצה להרשים. הצלחתם 🏆",
-        "וואלה, {count} משימות. אם ככה כל יום — תגמרו את הכל עד יום שישי 📈",
+        "✅ הושלמו {count} משימות היום — יום פרודוקטיבי.",
+        "✅ סיימתם {count} משימות. התקדמות משמעותית.",
+        "✅ {count} משימות הושלמו היום. עבודה טובה.",
     ],
     'decent': [  # completed >= 2
-        "סיימתם {count} משימות היום. לא רע, לא מדהים. יום רגיל של אנשים רגילים 👍",
-        "{count} משימות מסומנות. ההתקדמות קיימת, גם אם לא דרמטית 🚶‍♂️",
-        "יום סביר — {count} משימות ירדו מהרשימה. מחר ממשיכים 📋",
+        "✅ הושלמו {count} משימות היום. התקדמות יציבה.",
+        "✅ {count} משימות ירדו מהרשימה היום.",
+        "✅ סיימתם {count} משימות. יום של התקדמות.",
     ],
     'minimal': [  # completed == 1
-        "משימה אחת. אחת בודדה. טוב, לפחות הראיתם שאתם חיים 🫠",
-        "סימנתם משימה אחת היום. הרשימה שולחת תודה מעומק הלב 🙏",
-        "1. אחד. יחיד. בודד. זה מה שהיה היום. מחר יותר? 🤞",
+        "✅ הושלמה משימה אחת היום.",
+        "✅ משימה אחת סומנה כבוצעה היום.",
+        "✅ משימה אחת הושלמה — כל צעד נחשב.",
     ],
     'zero': [  # completed == 0
-        "אפס משימות היום. הרשימה בדיוק כמו שהייתה בבוקר. קונסיסטנטיות! 🫡",
-        "יום בלי אף V. המשימות חוגגות — עוד יום חיים 🎊📋",
-        "היום? כלום. נאדה. אפס. מחר זה יום חדש. חדש! 🌅",
+        "📋 לא הושלמו משימות היום. מחר הזדמנות חדשה.",
+        "📋 אין משימות שהושלמו היום.",
+        "📋 לא סומנו משימות היום. הרשימה ממתינה למחר.",
     ],
 }
 
 def _get_evening_reflection(completed_today, urgent_pending):
-    """Pick a sarcastic evening reflection based on today's completions."""
+    """Pick an evening reflection based on today's completions."""
     if completed_today >= 5:
         line = random.choice(_EVENING_HOOKS['productive']).format(count=completed_today)
     elif completed_today >= 2:
@@ -139,7 +138,7 @@ def _get_evening_reflection(completed_today, urgent_pending):
         line = random.choice(_EVENING_HOOKS['zero'])
 
     if urgent_pending > 0:
-        line += f"\n⚠️ {urgent_pending} משימות דחופות עדיין פתוחות. רק אומר."
+        line += f"\n⚠️ לתשומת לב: {urgent_pending} משימות דחופות עדיין ממתינות."
 
     return line
 

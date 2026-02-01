@@ -15,36 +15,32 @@ from src.scheduler.service import add_reminder_job
 
 logger = logging.getLogger(__name__)
 
-# Sarcastic feedback phrases (plural Hebrew) by completion-time bucket
+# Completion feedback phrases (plural Hebrew) by completion-time bucket
 _DONE_PHRASES = {
     'obsessive': [  # < 5 hours
-        "פחות מ-5 שעות? ישבתם וחיכיתם ליד הטלפון שזה יקרה? לכו לנשום אוויר 🧘‍♂️💨",
-        "מהירים כמו ברק! חשבתי שזה באג, אף אחד לא מסיים כל כך מהר 😱⚡",
-        "רגע, סיימתם את זה ככה מהר? בטוח שעשיתם את זה כמו שצריך? 🤔🏃",
-        "אוקיי, הבנו, אתם יעילים. אפשר גם קצת להירגע 😤✨",
+        "✅ המשימה הושלמה תוך פחות מ-5 שעות. ביצוע מהיר!",
+        "✅ הושלם במהירות. יעילות גבוהה.",
+        "✅ סומן כבוצע — טיפול מהיר.",
     ],
     'normal': [  # 5 – 48 hours
-        "קצב של צב עם אישיות, אבל העיקר שזה נעשה 🐌😏",
-        "סבבה, לקח לכם קצת זמן אבל עדיין בטווח הנורמלי. כל הכבוד 👏🎭",
-        "יום-יומיים? קלאסי שלכם. לא מהר מדי, לא לאט מדי 📊😌",
-        "הו, נזכרתם! חשבתי שכבר שכחתם. נחמד שהפתעתם 🎉😏",
+        "✅ המשימה הושלמה בהצלחה.",
+        "✅ בוצע. עוד משימה מאחורינו.",
+        "✅ המשימה סומנה כבוצעה.",
     ],
     'procrastinator': [  # 2 – 7 days
-        "אני בהלם, באמת נזכרתם בזה? הופתעתי לטובה מהתפקוד המאוחר 🧐👏",
-        "שבוע כמעט עבר ורק עכשיו? טוב, עדיף מאוחר מאשר... רגע, זה כבר מאוחר 😅⏰",
-        "אחרי כמה ימים של התלבטות סוף סוף עשיתם את זה. גיבורים 🦸‍♂️🐢",
-        "חשבתי שהמשימה הזו כבר פרשה לגמלאות, אבל הנה, הפתעה! 🎊😲",
+        "✅ המשימה הושלמה לאחר מספר ימים.",
+        "✅ בוצע. טוב שזה ירד מהרשימה.",
+        "✅ הושלם — עוד פריט שהתפנה מהרשימה.",
     ],
     'archeologist': [  # > 7 days
-        "נס חנוכה! אחרי יותר משבוע נזכרתם בזה? כמעט העברתי את זה לירושה 👵👴",
-        "חפירה ארכיאולוגית! מצאתם משימה עתיקה ואפילו סיימתם אותה 🏛️🪨",
-        "חשבתי שהמשימה הזו כבר קיבלה אזרחות. שבוע+! שיא חדש 🏆🗓️",
-        "המשימה הזו כבר הספיקה ללמוד שפה חדשה. אתם? רק סיימתם אותה 📚🌍",
+        "✅ המשימה הושלמה לאחר יותר משבוע.",
+        "✅ משימה ותיקה הושלמה סוף סוף.",
+        "✅ בוצע — פריט שחיכה הרבה זמן ירד מהרשימה.",
     ],
 }
 
 def _get_done_phrase(created_at) -> str:
-    """Pick a random sarcastic phrase based on how long the task was open."""
+    """Pick a random feedback phrase based on how long the task was open."""
     if not created_at:
         return random.choice(_DONE_PHRASES['normal'])
     now_naive = get_now().replace(tzinfo=None)
@@ -484,7 +480,7 @@ async def mark_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             task.completed_at = to_naive_israel(get_now())
             session.commit()
 
-            # Show sarcastic feedback — no buttons to prevent accidental clicks
+            # Show completion feedback — no buttons to prevent accidental clicks
             await query.edit_message_text(f"✅ {phrase}", parse_mode='HTML')
 
             # Let the user read, then return to dashboard

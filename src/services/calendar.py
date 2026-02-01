@@ -131,7 +131,7 @@ def get_tomorrow_events(service, calendar_id: str) -> list | None:
 def format_events_section(events: list) -> str:
     """Format calendar events into a Hebrew text section."""
     if not events:
-        return "📅 אין אירועים מחר — יום פתוח!"
+        return "📅 אין אירועים מתוכננים למחר."
 
     lines = ["📅 <b>אירועים מחר:</b>"]
     for ev in events:

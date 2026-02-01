@@ -6,7 +6,7 @@ Primary context file for AI assistants working on this project.
 
 ## Project Overview
 
-**The Life Itself (TLI)** is a Hebrew-language Telegram bot for personal task management. It lets users organize tasks by category (Home / Work), set priorities (Urgent / Normal / Low), schedule reminders, and receive a sarcastic daily morning briefing — all through an inline-keyboard-driven Telegram interface.
+**The Life Itself (TLI)** is a Hebrew-language Telegram bot for personal task management. It lets users organize tasks by category (Home / Work), set priorities (Urgent / Normal / Low), schedule reminders, and receive a daily morning briefing — all through an inline-keyboard-driven Telegram interface.
 
 The bot is designed for a single user or small user base. All UI text is in Hebrew.
 
@@ -36,8 +36,8 @@ There is **no web framework** (no Flask / FastAPI). The bot uses long-polling vi
 - **Reminders** — Preset options: 1 hour, Tonight 20:00, Tomorrow 09:00, Tomorrow 09:30, 3 days, 1 week, None. Reminders can be snoozed by 1 hour. Scheduled via APScheduler with persistent job store.
 - **Dashboard** (`/start`, `/dashboard`) — Time-of-day greeting, task counts per category (with urgent count), top 3 urgent tasks, today's upcoming reminders, quick filter buttons.
 - **Quick Add** — Fast task creation that skips priority/subcategory selection (defaults to Home, Normal priority).
-- **Daily Briefing** — Automated job at 09:35 Israel time. Includes a sarcastic performance-based opening hook (based on yesterday's completions vs remaining), yesterday's completion count, top 3 personal and shared tasks with age indicators (🐢 >3 days, 🏛️ >7 days), and a link to the full list. Skips users with zero pending tasks and zero yesterday completions.
-- **Evening Brief** — Automated job at 20:30 Israel time. Includes tomorrow's weather forecast with clothing recommendation for adults and children (via OpenWeatherMap), tomorrow's Google Calendar events (via service account auth, per-user calendar mapping), today's task completion count with sarcastic reflection, and urgent task warnings. Each section degrades gracefully if its data source is unavailable.
+- **Daily Briefing** — Automated job at 09:35 Israel time. Includes a performance-based opening summary (based on yesterday's completions vs remaining), yesterday's completion count, top 3 personal and shared tasks with age indicators (🐢 >3 days, 🏛️ >7 days), and a link to the full list. Skips users with zero pending tasks and zero yesterday completions.
+- **Evening Brief** — Automated job at 20:30 Israel time. Includes tomorrow's weather forecast with clothing recommendation for adults and children (via OpenWeatherMap), tomorrow's Google Calendar events (via service account auth, per-user calendar mapping), today's task completion summary, and urgent task alerts. Each section degrades gracefully if its data source is unavailable.
 - **Category Management** (`/categories`) — Add or soft-delete subcategories for Home and Work.
 
 ---
@@ -206,10 +206,11 @@ There is **no Docker setup** and **no CI/CD pipeline** — deployment is via Rai
 - Callback data uses string prefixes (e.g., `view_task_`, `done_task_`, `snooze_1h_`) followed by the task ID.
 - The bot uses polling, not webhooks.
 
-### Sarcastic Personality
-- **Task completion** (`handlers.py`): When a task is marked done, the bot picks a random sarcastic phrase based on how long the task was open (< 5h obsessive, 5–48h normal, 2–7d procrastinator, > 7d archeologist).
-- **Daily briefing** (`jobs.py`): The morning message opens with a sarcastic hook based on yesterday's performance bracket (amazing/good/meh/zero/clean). Hooks are defined in `_BRIEFING_HOOKS` dict.
-- **Evening brief** (`jobs.py`): The evening message includes a sarcastic reflection based on today's completion count (productive/decent/minimal/zero), plus an urgent task warning if applicable. Hooks are defined in `_EVENING_HOOKS` dict.
+### Personality — Professional, Helpful, and Concise
+The bot's tone is professional, direct, and supportive. Focus is on family productivity and clear communication.
+- **Task completion** (`handlers.py`): When a task is marked done, the bot shows a concise confirmation message that varies by how long the task was open (< 5h quick, 5–48h normal, 2–7d delayed, > 7d long-standing). Phrases are defined in `_DONE_PHRASES` dict.
+- **Daily briefing** (`jobs.py`): The morning message opens with a neutral/encouraging summary based on yesterday's performance bracket (amazing/good/meh/zero/clean). Hooks are defined in `_BRIEFING_HOOKS` dict.
+- **Evening brief** (`jobs.py`): The evening message includes a factual summary of today's completion count (productive/decent/minimal/zero), plus an urgent task alert if applicable. Hooks are defined in `_EVENING_HOOKS` dict.
 
 ### Code Conventions
 - Hebrew-language UI strings are inline in handler files (no i18n framework).
