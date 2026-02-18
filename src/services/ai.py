@@ -40,10 +40,10 @@ Return ONLY valid JSON with these fields:
 
 ### Examples:
 - "תזכיר לי מחר לקנות חלב דחוף" 
-  -> {"text": "לקנות חלב", "parent_category": "home", "sub_category": "כללי", "priority": "urgent", "reminder_time": "2026-02-19T09:00:00"}
+  -> {{"text": "לקנות חלב", "parent_category": "home", "sub_category": "כללי", "priority": "urgent", "reminder_time": "2026-02-19T09:00:00"}}
 
 - "להוסיף לפרויקטים לשלם ארנונה"
-  -> {"text": "לשלם ארנונה", "parent_category": "projects", "sub_category": "בירוקרטיה 🏛️", "priority": "normal", "reminder_time": null}
+  -> {{"text": "לשלם ארנונה", "parent_category": "projects", "sub_category": "בירוקרטיה 🏛️", "priority": "normal", "reminder_time": null}}
 """
 
 
