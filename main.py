@@ -6,7 +6,7 @@ load_dotenv()
 
 from src.database.core import init_db
 from migrate_db import migrate
-from src.scheduler.service import start_scheduler, add_daily_briefing_job, add_evening_brief_job, recover_missed_reminders
+from src.scheduler.service import start_scheduler, recover_missed_reminders
 from src.bot.bot_app import create_app
 
 logging.basicConfig(
@@ -68,19 +68,8 @@ def main():
     # 3. Start Scheduler
     logger.info("Starting Scheduler...")
     start_scheduler()
-    add_daily_briefing_job()
-    add_evening_brief_job()
 
     # 3c. Log optional service status
-    from src.services.calendar import log_calendar_setup_status
-    log_calendar_setup_status()
-
-    weather_key = os.getenv("OPENWEATHER_API_KEY")
-    if weather_key:
-        logger.info(f"OpenWeatherMap: API key configured (len={len(weather_key)})")
-    else:
-        logger.info("OpenWeatherMap: OPENWEATHER_API_KEY not set — evening brief will skip weather section")
-
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         logger.info(f"Gemini AI: API key configured (len={len(gemini_key)})")

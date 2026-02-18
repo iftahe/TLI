@@ -20,7 +20,7 @@ scheduler = BackgroundScheduler(
 # Must be cleaned from the persistent store BEFORE scheduler.start(),
 # because APScheduler deserializes all stored jobs on start and crashes
 # with LookupError if the referenced function no longer exists.
-_STALE_JOB_IDS = ['daily_summary']
+_STALE_JOB_IDS = ['daily_summary', 'daily_briefing', 'evening_brief']
 
 def _clean_stale_jobs():
     """Remove ghost jobs from the persistent store via raw SQL.
@@ -59,28 +59,6 @@ def add_reminder_job(task_id: int, run_date, chat_id: int):
         id=f'reminder_{task_id}',
         replace_existing=True
     )
-
-def add_daily_briefing_job():
-    if not scheduler.get_job('daily_briefing'):
-        scheduler.add_job(
-            'src.scheduler.jobs:daily_briefing_job',
-            'cron',
-            hour=9,
-            minute=35,
-            id='daily_briefing',
-            replace_existing=True
-        )
-
-def add_evening_brief_job():
-    if not scheduler.get_job('evening_brief'):
-        scheduler.add_job(
-            'src.scheduler.jobs:evening_brief_job',
-            'cron',
-            hour=20,
-            minute=30,
-            id='evening_brief',
-            replace_existing=True
-        )
 
 def recover_missed_reminders():
     """Schedule immediate delivery for reminders missed while the bot was offline.
