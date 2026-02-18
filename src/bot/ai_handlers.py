@@ -86,8 +86,9 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await _process_ai_text(update, context, rest, api_key)
 
     await update.message.reply_text(
-        "🤖 שלח טקסט חופשי ואמיר את זה למשימה.\n"
-        "לדוגמה: <i>לקנות חלב מחר בבוקר</i>\n\n"
+        "🤖 שלח טקסט חופשי — אני יכול ליצור משימה או לענות על שאלות לגבי המשימות שלך.\n"
+        "לדוגמה: <i>לקנות חלב מחר בבוקר</i>\n"
+        "או: <i>כמה משימות דחופות יש לי?</i>\n\n"
         "(שלח /cancel לביטול)",
         parse_mode="HTML",
     )
@@ -108,19 +109,24 @@ async def ai_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _process_ai_text(update, context, text, api_key):
-    """Call Gemini and show confirmation."""
+    """Call Gemini and show confirmation or direct answer."""
     from src.services.ai import parse_task_from_text
 
     # Show processing indicator
     processing_msg = await update.message.reply_text("🤖 מעבד...")
 
+    chat_id = update.effective_chat.id
     # Call Gemini in a thread to avoid blocking
-    result = await asyncio.to_thread(parse_task_from_text, text, api_key)
+    result = await asyncio.to_thread(parse_task_from_text, text, api_key, chat_id)
 
     if not result:
         await processing_msg.edit_text(
             "❌ לא הצלחתי לפרש את הטקסט. נסה לנסח אחרת."
         )
+        return ConversationHandler.END
+
+    if result.get("intent") == "TASK_QUERY":
+        await processing_msg.edit_text(f"🤖 {result['response']}")
         return ConversationHandler.END
 
     context.user_data["ai_task"] = result
@@ -140,6 +146,7 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     processing_msg = await update.message.reply_text("🎙️ מעבד הודעה קולית...")
 
     voice = update.message.voice
+    chat_id = update.effective_chat.id
     tmp_path = None
     try:
         file = await voice.get_file()
@@ -150,7 +157,7 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Voice file downloaded: {tmp_path} ({voice.duration}s)")
 
         from src.services.ai import parse_task_from_voice
-        result = await asyncio.to_thread(parse_task_from_voice, tmp_path, api_key)
+        result = await asyncio.to_thread(parse_task_from_voice, tmp_path, api_key, chat_id=chat_id)
     except Exception as e:
         logger.error(f"Voice processing error: {e}", exc_info=True)
         await processing_msg.edit_text("❌ שגיאה בעיבוד ההודעה הקולית.")
@@ -166,6 +173,10 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text(
             "❌ לא הצלחתי לפרש את ההודעה הקולית. נסה שוב."
         )
+        return ConversationHandler.END
+
+    if result.get("intent") == "TASK_QUERY":
+        await processing_msg.edit_text(f"🤖 {result['response']}")
         return ConversationHandler.END
 
     context.user_data["ai_task"] = result
