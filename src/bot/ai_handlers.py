@@ -1,5 +1,6 @@
 import os
 import asyncio
+import tempfile
 import logging
 from datetime import datetime
 
@@ -23,7 +24,48 @@ AI_CONFIRM_SAVE = "ai_confirm_save"
 AI_CONFIRM_CANCEL = "ai_confirm_cancel"
 
 _PRIORITY_LABELS = {"urgent": "דחוף 🔴", "normal": "רגיל 🟡", "low": "נמוך 🟢"}
-_CATEGORY_LABELS = {"home": "🏠 בית", "work": "💼 עבודה"}
+_CATEGORY_LABELS = {"home": "🏠 בית", "work": "💼 עבודה", "projects": "📁 פרויקטים"}
+
+
+async def _show_ai_confirmation(message, result):
+    """Build and show AI task confirmation message with Save/Cancel buttons."""
+    pri_label = _PRIORITY_LABELS.get(result["priority"], result["priority"])
+    cat_label = _CATEGORY_LABELS.get(result["parent_category"], result["parent_category"])
+
+    if result["reminder_time"]:
+        try:
+            dt = datetime.fromisoformat(result["reminder_time"])
+            time_str = dt.strftime("%H:%M %d/%m")
+        except ValueError:
+            time_str = "ללא"
+    else:
+        time_str = "ללא"
+
+    sub_cat = result.get("sub_category", "כללי")
+
+    msg = (
+        f"🤖 <b>אישור משימה מ-AI</b>\n\n"
+        f"📝 {result['description']}\n"
+        f"📂 {cat_label}"
+    )
+    if result["parent_category"] == "projects" and sub_cat != "כללי":
+        msg += f" > {sub_cat}"
+    msg += f"\n⚡ {pri_label}\n"
+    msg += f"⏰ תזכורת: {time_str}\n\n"
+    msg += "לשמור את המשימה?"
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ שמור", callback_data=AI_CONFIRM_SAVE),
+            InlineKeyboardButton("❌ בטל", callback_data=AI_CONFIRM_CANCEL),
+        ]
+    ]
+
+    await message.edit_text(
+        msg,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
 
 
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -81,43 +123,53 @@ async def _process_ai_text(update, context, text, api_key):
         )
         return ConversationHandler.END
 
-    # Store parsed data for confirmation
     context.user_data["ai_task"] = result
+    await _show_ai_confirmation(processing_msg, result)
+    return AI_CONFIRM
 
-    # Build confirmation message
-    pri_label = _PRIORITY_LABELS.get(result["priority"], result["priority"])
-    cat_label = _CATEGORY_LABELS.get(result["parent_category"], result["parent_category"])
 
-    if result["reminder_time"]:
-        try:
-            dt = datetime.fromisoformat(result["reminder_time"])
-            time_str = dt.strftime("%H:%M %d/%m")
-        except ValueError:
-            time_str = "ללא"
-    else:
-        time_str = "ללא"
+async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle voice messages: download, transcribe via Gemini, create task."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        await update.message.reply_text(
+            "⚠️ שירות ה-AI לא מוגדר. פנה למנהל המערכת."
+        )
+        return ConversationHandler.END
 
-    msg = (
-        f"🤖 <b>אישור משימה מ-AI</b>\n\n"
-        f"📝 {result['description']}\n"
-        f"📂 {cat_label}\n"
-        f"⚡ {pri_label}\n"
-        f"⏰ תזכורת: {time_str}\n\n"
-        f"לשמור את המשימה?"
-    )
+    processing_msg = await update.message.reply_text("🎙️ מעבד הודעה קולית...")
 
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ שמור", callback_data=AI_CONFIRM_SAVE),
-            InlineKeyboardButton("❌ בטל", callback_data=AI_CONFIRM_CANCEL),
-        ]
-    ]
+    voice = update.message.voice
+    tmp_path = None
+    try:
+        file = await voice.get_file()
+        tmp = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        await file.download_to_drive(tmp_path)
+        logger.info(f"Voice file downloaded: {tmp_path} ({voice.duration}s)")
 
-    await processing_msg.edit_text(
-        msg,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML",
-    )
+        from src.services.ai import parse_task_from_voice
+        result = await asyncio.to_thread(parse_task_from_voice, tmp_path, api_key)
+    except Exception as e:
+        logger.error(f"Voice processing error: {e}", exc_info=True)
+        await processing_msg.edit_text("❌ שגיאה בעיבוד ההודעה הקולית.")
+        return ConversationHandler.END
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    if not result:
+        await processing_msg.edit_text(
+            "❌ לא הצלחתי לפרש את ההודעה הקולית. נסה שוב."
+        )
+        return ConversationHandler.END
+
+    context.user_data["ai_task"] = result
+    await _show_ai_confirmation(processing_msg, result)
     return AI_CONFIRM
 
 
@@ -161,7 +213,7 @@ async def ai_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             text=task_data["description"],
             priority=task_data["priority"],
             parent_category=task_data["parent_category"],
-            sub_category="כללי",
+            sub_category=task_data.get("sub_category", "כללי"),
             reminder_time=reminder_time_naive,
             status="pending",
             is_shared=0,
