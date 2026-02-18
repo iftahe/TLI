@@ -52,7 +52,7 @@ def _validate_parsed_data(data: dict) -> dict | None:
     now = get_now()
     result = {}
 
-    desc = data.get("description")
+    desc = data.get("text") or data.get("description")
     if not desc or not isinstance(desc, str):
         logger.warning("Gemini returned no description")
         return None
