@@ -43,14 +43,18 @@ def parse_task_from_text(text: str, api_key: str) -> dict | None:
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
 
         now = get_now()
         system = _SYSTEM_PROMPT.format(now=now.strftime("%Y-%m-%d %H:%M:%S"))
 
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            system_instruction=system,
+        )
+
         response = model.generate_content(
-            [system, text],
-            generation_config=genai.types.GenerationConfig(
+            text,
+            generation_config=genai.GenerationConfig(
                 temperature=0.1,
                 response_mime_type="application/json",
             ),
@@ -58,6 +62,7 @@ def parse_task_from_text(text: str, api_key: str) -> dict | None:
         )
 
         raw = response.text.strip()
+        logger.info(f"Gemini raw response: {raw[:200]}")
         data = json.loads(raw)
     except Exception as e:
         logger.error(f"Gemini API call failed: {e}", exc_info=True)
