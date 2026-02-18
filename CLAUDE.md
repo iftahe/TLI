@@ -6,7 +6,7 @@ Primary context file for AI assistants working on this project.
 
 ## Project Overview
 
-**The Life Itself (TLI)** is a Hebrew-language Telegram bot for personal task management. It lets users organize tasks by category (Home / Work), set priorities (Urgent / Normal / Low), schedule reminders, and receive a daily morning briefing — all through an inline-keyboard-driven Telegram interface.
+**The Life Itself (TLI)** is a Hebrew-language Telegram bot for personal task management. It lets users organize tasks by category (Home / Work / Projects), set priorities (Urgent / Normal / Low), schedule reminders, and create tasks via AI text or voice input — all through an inline-keyboard-driven Telegram interface.
 
 The bot is designed for a single user or small user base. All UI text is in Hebrew.
 
@@ -20,7 +20,7 @@ The bot is designed for a single user or small user base. All UI text is in Hebr
 | Telegram API | `python-telegram-bot` (with `job-queue` and `callback-data` extras) |
 | ORM | SQLAlchemy (declarative base) |
 | Database | PostgreSQL (production) / SQLite (local dev) |
-| Scheduler | APScheduler `BackgroundScheduler` with SQLAlchemy job store |
+| Scheduler | APScheduler `BackgroundScheduler` with SQLAlchemy job store (reminders only) |
 | Config | `python-dotenv` (.env file) |
 | AI | Google Gemini (`google-generativeai` SDK, `gemini-2.0-flash` model) |
 | Deployment | Railway (Procfile-based) |
@@ -31,16 +31,17 @@ There is **no web framework** (no Flask / FastAPI). The bot uses long-polling vi
 
 ## Core Features
 
-- **Task CRUD** — Create, view, edit, and mark tasks as done. Tasks have a description, priority, parent category (home/work), optional subcategory, optional reminder, and `completed_at` timestamp.
+- **Task CRUD** — Create, view, edit, and mark tasks as done. Tasks have a description, priority, parent category (home/work/projects), optional subcategory, optional reminder, and `completed_at` timestamp. Task creation is triggered by sending text starting with `"בית"`, `"עבודה"`, or `"פרויקטים"`.
 - **Priority System** — Urgent (red), Normal (yellow), Low (green). Tasks are sorted by priority throughout the UI.
-- **Categories** — Two parent categories: `home` and `work`. Each has user-manageable subcategories (e.g., Shopping, Maintenance, Emails, Meetings). Subcategories use soft delete (`is_active` flag).
+- **Categories** — Three parent categories: `home`, `work`, and `projects`. Each has user-manageable subcategories. Subcategories use soft delete (`is_active` flag). Default home subcategories: Shopping, Maintenance, Cleaning, Other. Default work: Emails, Meetings, Projects, Other. Default projects: Tasks, Bureaucracy, Shopping.
 - **Reminders** — Preset options: 1 hour, Tonight 20:00, Tomorrow 09:00, Tomorrow 09:30, 3 days, 1 week, None. Reminders can be snoozed by 1 hour. Scheduled via APScheduler with persistent job store.
-- **Dashboard** (`/start`, `/dashboard`) — Time-of-day greeting, task counts per category (with urgent count), top 3 urgent tasks, today's upcoming reminders, quick filter buttons.
+- **Dashboard** (`/start`, `/dashboard`) — Time-of-day greeting, task counts per category (with urgent count), top 3 urgent tasks, today's upcoming reminders, quick filter buttons (Home, Work, Projects, Today).
 - **Quick Add** — Fast task creation that skips priority/subcategory selection (defaults to Home, Normal priority).
-- **Daily Briefing** — Automated job at 09:35 Israel time. Includes a performance-based opening summary (based on yesterday's completions vs remaining), yesterday's completion count, top 3 personal and shared tasks with age indicators (🐢 >3 days, 🏛️ >7 days), and a link to the full list. Skips users with zero pending tasks and zero yesterday completions.
-- **Evening Brief** — Automated job at 20:30 Israel time. Includes tomorrow's weather forecast with clothing recommendation for adults and children (via OpenWeatherMap), tomorrow's Google Calendar events (via service account auth, per-user calendar mapping), today's task completion summary, and urgent task alerts. Each section degrades gracefully if its data source is unavailable.
+- **Daily Briefing** — *Archived* — see `archive/` directory. Previously an automated 09:35 morning job.
+- **Evening Brief** — *Archived* — see `archive/` directory. Previously an automated 20:30 evening job with weather/calendar integration.
 - **AI Task Parsing** (`/ai`) — Free-form Hebrew text parsed by Google Gemini into structured tasks. Supports inline (`/ai לקנות חלב מחר בבוקר`) and two-step flows. Gemini extracts description, category (home/work), priority, and reminder time. Shows a confirmation step (Save/Cancel) before creating the task. Degrades gracefully if `GEMINI_API_KEY` is not set.
-- **Category Management** (`/categories`) — Add or soft-delete subcategories for Home and Work.
+- **Voice Entry** — Send a voice message to the bot; it downloads the audio, transcribes it via Gemini, and creates a task using the same AI parsing flow as `/ai`. Entry point is in `ai_handlers.py`.
+- **Category Management** (`/categories`) — Add or soft-delete subcategories for Home, Work, and Projects.
 
 ---
 
@@ -57,16 +58,21 @@ The Life Itself/
 ├── .env.example               # Template: BOT_TOKEN=your_telegram_bot_token
 ├── .gitignore                 # Excludes: __pycache__, *.db, .env, .venv
 │
+├── archive/                   # Archived (disabled) features — kept for reference
+│   ├── weather.py             # OpenWeatherMap forecast + clothing recommendation
+│   ├── calendar.py            # Google Calendar service account auth + event fetching
+│   └── jobs_archived.py       # Archived daily briefing & evening brief job functions
+│
 ├── src/
 │   ├── bot/
 │   │   ├── bot_app.py              # Telegram Application factory & handler registration
 │   │   ├── handlers.py             # Core conversation handlers (create/edit/done/remind)
 │   │   ├── dashboard_handlers.py   # Dashboard display & quick-add flow
-│   │   ├── category_handlers.py    # Subcategory add/delete handlers
-│   │   ├── ai_handlers.py           # /ai command: Gemini-powered free-text task creation with confirmation
+│   │   ├── category_handlers.py    # Subcategory add/delete handlers (Home, Work, Projects)
+│   │   ├── ai_handlers.py          # /ai command & voice handler: Gemini-powered task creation
 │   │   ├── keyboards.py            # InlineKeyboard builders (priority, reminder, subcategory) — subcategory has retry logic
 │   │   ├── constants.py            # States, callback prefixes, priority/reminder/category enums
-│   │   └── utils.py                # Timezone utilities: get_now(), to_naive_israel()
+│   │   └── utils.py                # Timezone utilities: get_now(), to_naive_israel(), is_user_allowed()
 │   │
 │   ├── database/
 │   │   ├── core.py                 # Engine (with pool resilience for Neon), SessionLocal, init_db() with default subcategory seeding
@@ -74,13 +80,11 @@ The Life Itself/
 │   │
 │   ├── services/
 │   │   ├── __init__.py             # Services package marker
-│   │   ├── ai.py                   # Gemini AI: parse Hebrew free-text into structured task data
-│   │   ├── weather.py              # OpenWeatherMap forecast + clothing recommendation
-│   │   └── calendar.py             # Google Calendar service account auth + event fetching
+│   │   └── ai.py                   # Gemini AI: parse Hebrew free-text into structured task data
 │   │
 │   └── scheduler/
 │       ├── service.py              # APScheduler init, stale job cleanup, add_reminder_job(), recover_missed_reminders()
-│       └── jobs.py                 # Job functions: send_reminder_job(), daily_briefing_job(), evening_brief_job()
+│       └── jobs.py                 # Job functions: send_reminder_job()
 ```
 
 ---
@@ -93,10 +97,7 @@ The Life Itself/
 |----------|----------|-------------|
 | `BOT_TOKEN` | Yes | Telegram Bot API token |
 | `DATABASE_URL` | No | PostgreSQL connection string. Defaults to `sqlite:///./tasks.db` for local dev. |
-| `OPENWEATHER_API_KEY` | No | OpenWeatherMap API key for evening weather forecast. If missing, weather section is silently skipped. |
-| `GOOGLE_SERVICE_ACCOUNT_KEY` | No | Base64-encoded Google service account JSON for Calendar API. If missing, calendar section is skipped. |
-| `CALENDAR_MAP` | No | Per-user calendar mapping: `chat_id:calendar_id` pairs, comma-separated. |
-| `GEMINI_API_KEY` | No | Google Gemini API key for `/ai` command. If missing, `/ai` returns a "service unavailable" message. Requires billing-enabled Google AI Studio project. |
+| `GEMINI_API_KEY` | No | Google Gemini API key for `/ai` command and voice entry. If missing, `/ai` returns a "service unavailable" message. Requires billing-enabled Google AI Studio project. |
 
 The database module auto-converts `postgres://` to `postgresql://` for Heroku/Railway compatibility.
 
@@ -120,11 +121,9 @@ There is **no Docker setup** and **no CI/CD pipeline** — deployment is via Rai
 4. `migrate()` — Adds any missing columns using `TIMESTAMP`-compatible SQL. Uses `IF NOT EXISTS` on PostgreSQL.
 5. **Schema verification** — `SELECT completed_at FROM tasks LIMIT 0` (abort if column missing)
 6. `start_scheduler()` — Cleans stale jobs from persistent store via SQL, then starts APScheduler background thread
-7. `add_daily_briefing_job()` — Registers 09:35 daily cron job
-8. `add_evening_brief_job()` — Registers 20:30 daily cron job (weather + calendar + task reflection)
-9. **Log optional service status** — Checks OpenWeatherMap API key, Google Calendar credentials, and Gemini API key; logs setup instructions if missing
-10. `recover_missed_reminders()` — Non-blocking: schedules missed reminders as immediate APScheduler jobs (never calls `asyncio.run()` on the main thread)
-11. `create_app()` + `app.run_polling(drop_pending_updates=True)` — Starts Telegram long-polling
+7. **Log optional service status** — Checks Gemini API key; logs setup instructions if missing
+8. `recover_missed_reminders()` — Non-blocking: schedules missed reminders as immediate APScheduler jobs (never calls `asyncio.run()` on the main thread)
+9. `create_app()` + `app.run_polling(drop_pending_updates=True)` — Starts Telegram long-polling
 
 ---
 
@@ -206,17 +205,17 @@ There is **no Docker setup** and **no CI/CD pipeline** — deployment is via Rai
 - **Connection resilience** (PostgreSQL/Neon only): The engine uses `pool_pre_ping=True` (auto-reconnect stale connections), `pool_recycle=300` (recycle before Neon idle timeout), and `connect_timeout=10`. These settings are **not** applied to SQLite. `get_subcategory_keyboard()` additionally retries up to 3 times with backoff as defense-in-depth.
 
 ### Bot Patterns
-- Task creation is triggered by sending text starting with `"בית"` (home) or `"עבודה"` (work).
+- Task creation is triggered by sending text starting with `"בית"` (home), `"עבודה"` (work), or `"פרויקטים"` (projects).
 - All conversation flows use `python-telegram-bot` `ConversationHandler` with states defined in `constants.py`.
 - Callback data uses string prefixes (e.g., `view_task_`, `done_task_`, `snooze_1h_`) followed by the task ID.
 - The bot uses polling, not webhooks.
 - **AI handlers** (`ai_handlers.py`) are self-contained — local states (`AI_WAITING_TEXT=30`, `AI_CONFIRM=31`) and callback constants defined in-file, not in `constants.py`. The Gemini system prompt is defined in `src/services/ai.py` and must be passed via `system_instruction` parameter in the `GenerativeModel()` constructor (not as a list element in `generate_content()`). Tasks created via `/ai` default to subcategory "כללי" and `is_shared=0`.
+- **Voice handler** (`ai_handlers.py`) — entry point for the AI conversation handler. Downloads the `.ogg` voice file, sends it to Gemini for transcription, then follows the same AI task parsing flow. Registered as `MessageHandler(filters.VOICE, voice_handler)` in `bot_app.py`.
 
 ### Personality — Professional, Helpful, and Concise
 The bot's tone is professional, direct, and supportive. Focus is on family productivity and clear communication.
 - **Task completion** (`handlers.py`): When a task is marked done, the bot shows a concise confirmation message that varies by how long the task was open (< 5h quick, 5–48h normal, 2–7d delayed, > 7d long-standing). Phrases are defined in `_DONE_PHRASES` dict.
-- **Daily briefing** (`jobs.py`): The morning message opens with a neutral/encouraging summary based on yesterday's performance bracket (amazing/good/meh/zero/clean). Hooks are defined in `_BRIEFING_HOOKS` dict.
-- **Evening brief** (`jobs.py`): The evening message includes a factual summary of today's completion count (productive/decent/minimal/zero), plus an urgent task alert if applicable. Hooks are defined in `_EVENING_HOOKS` dict.
+- **Daily briefing / Evening brief**: *Archived* — see `archive/jobs_archived.py` for the original implementations.
 
 ### Code Conventions
 - Hebrew-language UI strings are inline in handler files (no i18n framework).

@@ -1,8 +1,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
-from src.database.core import SessionLocal, ensure_user_categories
+from src.database.core import SessionLocal, ensure_user_categories, ensure_project_categories
 from src.database.models import SubCategory
-from src.bot.constants import CATEGORY_HOME, CATEGORY_WORK
+from src.bot.constants import CATEGORY_HOME, CATEGORY_WORK, CATEGORY_PROJECTS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ async def categories_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         chat_id = update.effective_chat.id
         ensure_user_categories(session, chat_id)
+        ensure_project_categories(session, chat_id)
         categories = session.query(SubCategory).filter(
             SubCategory.chat_id == chat_id,
             SubCategory.is_active == 1
@@ -28,6 +29,7 @@ async def categories_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         home_cats = [c for c in categories if c.parent == CATEGORY_HOME]
         work_cats = [c for c in categories if c.parent == CATEGORY_WORK]
+        project_cats = [c for c in categories if c.parent == CATEGORY_PROJECTS]
         
         keyboard = []
         
@@ -51,6 +53,18 @@ async def categories_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 InlineKeyboardButton("❌ מחק", callback_data=f"{DEL_CAT_PREFIX}{c.id}")
             ])
         keyboard.append([InlineKeyboardButton("➕ הוסף לעבודה", callback_data=f"{ADD_CAT_PREFIX}{CATEGORY_WORK}")])
+
+        # Spacer
+        keyboard.append([InlineKeyboardButton("➖➖➖➖", callback_data="ignore")])
+
+        # Projects Section
+        keyboard.append([InlineKeyboardButton("📁 פרויקטים", callback_data="ignore")])
+        for c in project_cats:
+            keyboard.append([
+                InlineKeyboardButton(c.name, callback_data="ignore"),
+                InlineKeyboardButton("❌ מחק", callback_data=f"{DEL_CAT_PREFIX}{c.id}")
+            ])
+        keyboard.append([InlineKeyboardButton("➕ הוסף לפרויקטים", callback_data=f"{ADD_CAT_PREFIX}{CATEGORY_PROJECTS}")])
 
         msg = "📂 **ניהול קטגוריות**\nלחץ על 'הוסף' ליצירת קטגוריה חדשה, או 'מחק' להסרה."
         markup = InlineKeyboardMarkup(keyboard)
