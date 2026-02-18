@@ -84,6 +84,7 @@ async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ],
             [
                 InlineKeyboardButton(f"📁 פרויקטים ({projects_count})", callback_data="filter_projects"),
+                InlineKeyboardButton("➕ משימה מהירה", callback_data="quick_add_btn"),
             ],
         ]
 

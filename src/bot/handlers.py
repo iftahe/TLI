@@ -468,7 +468,7 @@ async def view_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text("❌ המשימה לא נמצאה (אולי נמחקה?)")
             return
 
-        priority_map = {'urgent': "durgent 🔴", 'normal': "רגיל 🟡", 'low': "נמוך 🟢"}
+        priority_map = {'urgent': "דחוף 🔴", 'normal': "רגיל 🟡", 'low': "נמוך 🟢"}
         p_text = priority_map.get(task.priority, task.priority)
         time_str = task.reminder_time.strftime('%d/%m %H:%M') if task.reminder_time else "ללא"
         shared_line = "👥 משותף" if task.is_shared else "👤 אישי"
@@ -892,7 +892,7 @@ async def filter_projects_callback(update: Update, context: ContextTypes.DEFAULT
     try:
         chat_id = update.effective_chat.id
         tasks = session.query(Task).filter(
-            Task.chat_id == chat_id,
+            get_accessible_filter(chat_id),
             Task.status == 'pending',
             Task.parent_category == 'projects'
         ).all()

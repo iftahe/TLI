@@ -54,6 +54,8 @@ def _validate_parsed_data(data: dict) -> dict | None:
     sub_cat = data.get("sub_category")
     if result["parent_category"] == "projects" and sub_cat and isinstance(sub_cat, str):
         result["sub_category"] = sub_cat.strip()
+    elif result["parent_category"] == "projects":
+        result["sub_category"] = "משימות 📋"
     else:
         result["sub_category"] = "כללי"
 
