@@ -93,7 +93,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def task_entry_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    if text.startswith('בית'):
+    if text.startswith('פרויקטים'):
+        context.user_data['parent'] = CATEGORY_PROJECTS
+        rest = text[8:].strip()
+    elif text.startswith('בית'):
         context.user_data['parent'] = CATEGORY_HOME
         rest = text[3:].strip()
     elif text.startswith('עבודה'):
@@ -105,21 +108,53 @@ async def task_entry_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not rest:
         await update.message.reply_text("מה המשימה?")
         return DESCRIPTION
-    
+
     context.user_data['description'] = rest
-    await update.message.reply_text(
-        f"משימה: {rest}\nבחר עדיפות:",
-        reply_markup=get_priority_keyboard()
-    )
-    return PRIORITY
+    parent = context.user_data['parent']
+
+    if parent == CATEGORY_PROJECTS:
+        try:
+            keyboard = get_subcategory_keyboard(parent, chat_id=update.effective_chat.id)
+        except Exception as e:
+            logger.error(f"Error building subcategory keyboard: {e}", exc_info=True)
+            context.user_data.clear()
+            await update.message.reply_text("❌ בעיית חיבור למסד הנתונים. נסה שוב בעוד כמה שניות.")
+            return ConversationHandler.END
+        await update.message.reply_text(
+            f"משימה: {rest}\nבחר קטגוריה:",
+            reply_markup=keyboard
+        )
+        return SUB_CATEGORY
+    else:
+        await update.message.reply_text(
+            f"משימה: {rest}\nמתי להזכיר?",
+            reply_markup=get_reminder_keyboard()
+        )
+        return REMINDER
 
 async def description_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['description'] = update.message.text
-    await update.message.reply_text(
-        "בחר עדיפות:",
-        reply_markup=get_priority_keyboard()
-    )
-    return PRIORITY
+    parent = context.user_data.get('parent')
+
+    if parent == CATEGORY_PROJECTS:
+        try:
+            keyboard = get_subcategory_keyboard(parent, chat_id=update.effective_chat.id)
+        except Exception as e:
+            logger.error(f"Error building subcategory keyboard: {e}", exc_info=True)
+            context.user_data.clear()
+            await update.message.reply_text("❌ בעיית חיבור למסד הנתונים. נסה שוב בעוד כמה שניות.")
+            return ConversationHandler.END
+        await update.message.reply_text(
+            "בחר קטגוריה:",
+            reply_markup=keyboard
+        )
+        return SUB_CATEGORY
+    else:
+        await update.message.reply_text(
+            "מתי להזכיר?",
+            reply_markup=get_reminder_keyboard()
+        )
+        return REMINDER
 
 async def priority_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -247,16 +282,15 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reminder_time_naive = None
 
-        is_shared = 1 if context.user_data.get('is_shared') else 0
         new_task = Task(
             chat_id=update.effective_chat.id,
             text=context.user_data['description'],
-            priority=context.user_data['priority'],
+            priority=context.user_data.get('priority', 'normal'),
             parent_category=context.user_data['parent'],
-            sub_category=context.user_data['subcategory'],
+            sub_category=context.user_data.get('subcategory', 'כללי'),
             reminder_time=reminder_time_naive,
             status='pending',
-            is_shared=is_shared
+            is_shared=0
         )
         session.add(new_task)
         session.commit()
@@ -266,9 +300,8 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             add_reminder_job(new_task.id, reminder_time, update.effective_chat.id)
 
         time_str = reminder_time.strftime('%H:%M %d/%m') if reminder_time else "ללא"
-        shared_label = " 👥" if is_shared else ""
         await query.edit_message_text(
-            f"✅ **המשימה נשמרה**{shared_label}\n"
+            f"✅ <b>המשימה נשמרה</b>\n"
             f"📝 {new_task.text}\n"
             f"⏰ תזכורת: {time_str}",
             parse_mode='HTML'
@@ -299,16 +332,15 @@ async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
     session = SessionLocal()
     try:
         reminder_time_naive = to_naive_israel(reminder_time)
-        is_shared = 1 if context.user_data.get('is_shared') else 0
         new_task = Task(
             chat_id=update.effective_chat.id,
             text=context.user_data['description'],
-            priority=context.user_data['priority'],
+            priority=context.user_data.get('priority', 'normal'),
             parent_category=context.user_data['parent'],
-            sub_category=context.user_data['subcategory'],
+            sub_category=context.user_data.get('subcategory', 'כללי'),
             reminder_time=reminder_time_naive,
             status='pending',
-            is_shared=is_shared
+            is_shared=0
         )
         session.add(new_task)
         session.commit()
@@ -317,9 +349,8 @@ async def custom_reminder_handler(update: Update, context: ContextTypes.DEFAULT_
         add_reminder_job(new_task.id, reminder_time, update.effective_chat.id)
 
         time_str = reminder_time.strftime('%H:%M %d/%m')
-        shared_label = " 👥" if is_shared else ""
         await update.message.reply_text(
-            f"✅ <b>המשימה נשמרה</b>{shared_label}\n"
+            f"✅ <b>המשימה נשמרה</b>\n"
             f"📝 {new_task.text}\n"
             f"⏰ תזכורת: {time_str}",
             parse_mode='HTML'
@@ -348,7 +379,8 @@ async def list_tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         chat_id = update.effective_chat.id
         tasks = session.query(Task).filter(
             get_accessible_filter(chat_id),
-            Task.status == 'pending'
+            Task.status == 'pending',
+            Task.parent_category != 'projects'
         ).all()
 
         if not tasks:
@@ -806,6 +838,101 @@ async def custom_edit_reminder_handler(update: Update, context: ContextTypes.DEF
         session.close()
 
     return ConversationHandler.END
+
+async def filter_today_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    session = SessionLocal()
+    try:
+        chat_id = update.effective_chat.id
+        now = get_now()
+        now_naive = now.replace(tzinfo=None)
+        today_start = now_naive.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = now_naive.replace(hour=23, minute=59, second=59)
+
+        tasks = session.query(Task).filter(
+            get_accessible_filter(chat_id),
+            Task.status == 'pending',
+            Task.parent_category != 'projects',
+            Task.reminder_time != None,
+            Task.reminder_time >= today_start,
+            Task.reminder_time <= today_end,
+        ).order_by(Task.reminder_time).all()
+
+        if not tasks:
+            text_lines = ["📌 <b>היום</b> — אין משימות מתוזמנות להיום"]
+        else:
+            text_lines = [f"📌 <b>משימות להיום</b> — {len(tasks)} משימות\n"]
+
+        buttons = []
+        for i, t in enumerate(tasks, 1):
+            t_str = t.reminder_time.strftime("%H:%M") if t.reminder_time else ""
+            cat = "🏠" if t.parent_category == CATEGORY_HOME else "💼"
+            p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
+            text_lines.append(f"  {i}. {t_str} {cat} {t.text} {p_icon}")
+            btn_label = f"{i}. {t.text[:25]}"
+            buttons.append(InlineKeyboardButton(btn_label, callback_data=f"{VIEW_TASK}{t.id}"))
+
+        keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+        keyboard.append([InlineKeyboardButton("🔙 חזרה לראשי", callback_data="back_to_dashboard")])
+
+        msg = "\n".join(text_lines)
+        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error filtering today tasks: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת משימות היום.")
+    finally:
+        session.close()
+
+async def filter_projects_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    session = SessionLocal()
+    try:
+        chat_id = update.effective_chat.id
+        tasks = session.query(Task).filter(
+            Task.chat_id == chat_id,
+            Task.status == 'pending',
+            Task.parent_category == 'projects'
+        ).all()
+
+        priority_order = {'urgent': 0, 'normal': 1, 'low': 2}
+        tasks.sort(key=lambda t: priority_order.get(t.priority, 99))
+
+        grouped = {}
+        for t in tasks:
+            sub = t.sub_category or "כללי"
+            grouped.setdefault(sub, []).append(t)
+
+        if not tasks:
+            text_lines = ["📁 <b>פרויקטים</b> — אין משימות"]
+        else:
+            text_lines = [f"📁 <b>פרויקטים</b> — {len(tasks)} משימות\n"]
+
+        buttons = []
+        num = 0
+        for sub_name, section_tasks in grouped.items():
+            text_lines.append(f"<b>{sub_name}</b>")
+            for t in section_tasks:
+                num += 1
+                p_icon = "🔴" if t.priority == 'urgent' else "🟡" if t.priority == 'normal' else "🟢"
+                text_lines.append(f"  {num}. {t.text} {p_icon}")
+                btn_label = f"{num}. {t.text[:25]}"
+                buttons.append(InlineKeyboardButton(btn_label, callback_data=f"{VIEW_TASK}{t.id}"))
+            text_lines.append("")
+
+        keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+        keyboard.append([InlineKeyboardButton("🔙 חזרה לראשי", callback_data="back_to_dashboard")])
+
+        msg = "\n".join(text_lines)
+        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error filtering projects: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת הפרויקטים.")
+    finally:
+        session.close()
 
 async def quick_add_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text

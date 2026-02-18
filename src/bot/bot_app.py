@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler, TypeHandler, ApplicationHandlerStop
 from src.bot.handlers import *
 from src.bot.constants import *
-from src.bot.handlers import shared_choice_callback
+from src.bot.handlers import filter_today_callback, filter_projects_callback
 from src.bot.utils import is_user_allowed
 
 logger = logging.getLogger(__name__)
@@ -55,11 +55,9 @@ def create_app():
 
     # Main task creation conversation — pattern filters prevent stealing unrelated callbacks
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(r'^(בית|עבודה)'), task_entry_handler)],
+        entry_points=[MessageHandler(filters.Regex(r'^(בית|עבודה|פרויקטים)'), task_entry_handler)],
         states={
             DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, description_handler)],
-            PRIORITY: [CallbackQueryHandler(priority_callback, pattern=f"^({PRIORITY_URGENT}|{PRIORITY_NORMAL}|{PRIORITY_LOW})$")],
-            SHARED_CHOICE: [CallbackQueryHandler(shared_choice_callback, pattern=f"^({SHARED_TASK_YES}|{SHARED_TASK_NO})$")],
             SUB_CATEGORY: [CallbackQueryHandler(subcategory_callback, pattern=r"^sub_")],
             REMINDER: [CallbackQueryHandler(reminder_callback, pattern=r"^reminder_")],
             WAITING_CUSTOM_REMINDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_reminder_handler)],
@@ -116,6 +114,8 @@ def create_app():
     app.add_handler(CallbackQueryHandler(list_tasks_command, pattern="^list_tasks_dashboard$"))
     app.add_handler(CallbackQueryHandler(back_to_dashboard_callback, pattern="^back_to_dashboard$"))
     app.add_handler(CallbackQueryHandler(filter_tasks_callback, pattern="^(filter_home|filter_work)$"))
+    app.add_handler(CallbackQueryHandler(filter_today_callback, pattern="^filter_today$"))
+    app.add_handler(CallbackQueryHandler(filter_projects_callback, pattern="^filter_projects$"))
 
     # Snooze & Reminder editing
     app.add_handler(CallbackQueryHandler(snooze_callback, pattern=f"^{SNOOZE_1H_PREFIX}"))
