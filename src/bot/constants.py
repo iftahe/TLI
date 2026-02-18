@@ -23,6 +23,7 @@ SNOOZE_1H_PREFIX = 'snooze_1h_'
 
 CATEGORY_HOME = 'home'
 CATEGORY_WORK = 'work'
+CATEGORY_PROJECTS = 'projects'
 
 # Valid Callbacks Prefixes
 VIEW_TASK = 'view_task_'

@@ -10,7 +10,7 @@ class Task(Base):
     chat_id = Column(BigInteger, nullable=False, index=True)
     text = Column(String, nullable=False)
     priority = Column(String, nullable=False)  # 'urgent', 'normal', 'low'
-    parent_category = Column(String, nullable=False)  # 'home', 'work'
+    parent_category = Column(String, nullable=False)  # 'home', 'work', or 'projects'
     sub_category = Column(String, nullable=True)
     reminder_time = Column(DateTime, nullable=True)
     status = Column(String, default='pending')  # 'pending', 'done'
@@ -25,5 +25,5 @@ class SubCategory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     chat_id = Column(BigInteger, nullable=True, index=True)
     name = Column(String, nullable=False)
-    parent = Column(String, nullable=False)  # 'home' or 'work'
+    parent = Column(String, nullable=False)  # 'home', 'work', or 'projects'
     is_active = Column(Integer, default=1)  # 1=True, 0=False

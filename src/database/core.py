@@ -45,6 +45,10 @@ DEFAULT_CATEGORIES = [
     ("פגישות 📅", "work"),
     ("פרויקטים 📊", "work"),
     ("אחר 📂", "work"),
+    # Projects
+    ("משימות 📋", "projects"),
+    ("בירוקרטיה 🏛️", "projects"),
+    ("קניות 🛒", "projects"),
 ]
 
 SHARED_HOME_CATEGORIES = [
@@ -71,6 +75,21 @@ def ensure_user_categories(session, chat_id: int):
             for name, parent in DEFAULT_CATEGORIES
         ]
         session.add_all(defaults)
+        session.commit()
+
+def ensure_project_categories(session, chat_id: int):
+    """Seeds project subcategories for a user if they have none yet."""
+    count = session.query(SubCategory).filter(
+        SubCategory.chat_id == chat_id,
+        SubCategory.parent == 'projects'
+    ).count()
+    if count == 0:
+        project_cats = [
+            SubCategory(name=name, parent=parent, chat_id=chat_id, is_active=1)
+            for name, parent in DEFAULT_CATEGORIES
+            if parent == 'projects'
+        ]
+        session.add_all(project_cats)
         session.commit()
 
 def ensure_shared_categories(session):
