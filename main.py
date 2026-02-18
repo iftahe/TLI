@@ -81,6 +81,12 @@ def main():
     else:
         logger.info("OpenWeatherMap: OPENWEATHER_API_KEY not set — evening brief will skip weather section")
 
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        logger.info(f"Gemini AI: API key configured (len={len(gemini_key)})")
+    else:
+        logger.info("Gemini AI: GEMINI_API_KEY not set — /ai command will be unavailable")
+
     # 3d. Recover missed reminders (non-blocking — schedules via APScheduler)
     logger.info("Checking for missed reminders...")
     recover_missed_reminders()

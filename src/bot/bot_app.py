@@ -84,6 +84,22 @@ def create_app():
     )
     app.add_handler(cat_conv)
 
+    # AI Task Parsing
+    from src.bot.ai_handlers import (
+        ai_command, ai_text_handler, ai_confirm_callback, ai_cancel,
+        AI_WAITING_TEXT, AI_CONFIRM, AI_CONFIRM_SAVE, AI_CONFIRM_CANCEL
+    )
+
+    ai_conv = ConversationHandler(
+        entry_points=[CommandHandler('ai', ai_command)],
+        states={
+            AI_WAITING_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ai_text_handler)],
+            AI_CONFIRM: [CallbackQueryHandler(ai_confirm_callback, pattern=f"^({AI_CONFIRM_SAVE}|{AI_CONFIRM_CANCEL})$")],
+        },
+        fallbacks=[CommandHandler('cancel', ai_cancel)]
+    )
+    app.add_handler(ai_conv)
+
     # --- Command Handlers ---
     app.add_handler(CommandHandler('list', list_tasks_command))
     app.add_handler(CommandHandler(['start', 'dashboard'], dashboard_command))
